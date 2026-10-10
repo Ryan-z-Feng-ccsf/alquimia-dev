@@ -2,19 +2,34 @@
 # Ubuntu 22.04 supplies /usr/bin/python3.10, required by the PETSc superbuild.
 FROM ubuntu:22.04 AS native-build
 ARG BUILD_JOBS=4
+
+# Avoid interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies
+# gcc/gfortran, openmpi, blas/lapack, cmake, python3.10 are requested
+# git and make are required for the build process
+# libhdf5-openmpi-dev is used in dev.yml and detected by Superbuild
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential gfortran cmake git pkg-config ca-certificates \
     python3.10 python3.10-venv python3-pip libopenmpi-dev openmpi-bin \
     && rm -rf /var/lib/apt/lists/*
+    
+# Set compilers to MPI wrappers to ensure correct linkage
 ENV CC=mpicc CXX=mpicxx FC=mpif90
+
+# Set the working directory
 WORKDIR /opt/alquimia
+
+# Copy necessary files
 COPY CMakeLists.txt LICENSE.txt ./
 COPY cmake/ cmake/
 COPY alquimia/ alquimia/
 COPY drivers/ drivers/
 COPY unit_tests/ unit_tests/
 COPY benchmarks/ benchmarks/
+
+# Cmake and make build
 RUN test "$(uname -m)" = x86_64 \
     && cmake -S . -B build -DALQUIMIA_SUPERBUILD=ON \
        -DCMAKE_BUILD_TYPE=Release -DXSDK_WITH_PFLOTRAN=ON \
@@ -31,7 +46,7 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/alquimia/venv UV_LINK_MODE=copy
 # Build the entry point for the C subprocess
 RUN uv sync --project mcp_alquimia --locked --no-dev --no-editable \
     && python3.10 mcp_alquimia/build_tools/build_alquimia_engine_process.py
-# Cjson license is in build/install/share/licenses/cjson (through superbuild cmake)
+# Cjson license is in build/install/share/licenses/cjson (through cmake Superbuild)
 RUN mkdir -p build/install/share/licenses/petsc \
              build/install/share/licenses/pflotran \
              build/install/share/licenses/crunchflow \
@@ -48,6 +63,8 @@ RUN mkdir -p build/install/share/licenses/petsc \
 
 FROM ubuntu:22.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
+
+# chown grants permission
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3.10 libopenmpi3 openmpi-bin libgfortran5 libstdc++6 ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
@@ -66,6 +83,11 @@ COPY --from=server-build /opt/alquimia/benchmarks/batch_chem/calcite-short-pflot
 COPY --from=server-build /opt/alquimia/models/ex8_nn/ex8_nn_batch1.json \
      /opt/alquimia/models/ex8_nn/ex8_nn_batch1.onnx models/ex8_nn/
 COPY LICENSE.txt ./
+
+# Update the PATH for Python executable
+# Update LD_LIBRARY_PATH so the executables can find the shared libraries
+# PYTHONUNBUFFERED=1 Print info immediately
+# PYTHONDONTWRITEBYTECODE=1 No Python cache file
 ENV PATH="/opt/alquimia/venv/bin:${PATH}" \
     LD_LIBRARY_PATH=/opt/alquimia/build/install/lib \
     PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
@@ -75,6 +97,8 @@ ENTRYPOINT ["mcp-alquimia", "--repository", "/opt/alquimia", "--run-root", "/run
 # The validation image includes pytest and baseline drivers; the runtime does not.
 FROM server-build AS test
 RUN uv sync --project mcp_alquimia --locked --group test --no-editable
+
+# chown -R grants permission recursively
 ENV PATH="/opt/alquimia/venv/bin:${PATH}" \
     LD_LIBRARY_PATH=/opt/alquimia/build/install/lib
 RUN useradd --create-home --uid 1000 alquimia \
