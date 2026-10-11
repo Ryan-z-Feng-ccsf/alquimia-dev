@@ -1,4 +1,5 @@
-# Build from the repository root with -f mcp_alquimia/containers/Dockerfile.
+# cd project root
+# docker build -t alquimia-mcp:local -f mcp/-f mcp_alquimia/containers/Dockerfile .
 # Ubuntu 22.04 supplies /usr/bin/python3.10, required by the PETSc superbuild.
 FROM ubuntu:22.04 AS native-build
 ARG BUILD_JOBS=4
