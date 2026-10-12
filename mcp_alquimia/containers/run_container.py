@@ -70,7 +70,6 @@ def main() -> None:
         f"type=bind,src={run_root},dst=/runs",
         args.image
     ]
-    print("--- container about to start ---")
     os.execvp(command[0], command)
 
 
