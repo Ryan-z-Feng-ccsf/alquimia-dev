@@ -25,7 +25,7 @@ def main() -> None:
     parser.add_argument("--docker-host", default=os.environ.get(
         "DOCKER_HOST", f"unix://{runtime}/alquimia-docker/docker.sock"))
     parser.add_argument("--run-root", type=Path,
-                        default=repository / "build/mcp_alquimia/container_runs")
+                        default=repository / "build/mcp_alquimia/runs")
     args = parser.parse_args()
     docker = ["docker", "--host", args.docker_host]
     try:
