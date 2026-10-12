@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "alquimia-container": {
+      "command": "python3",
+      "args": [
+        "/absolute/path/to/alquimia-ryan/mcp_alquimia/containers/run_container.py"
+      ]
+    }
+  }
+}
