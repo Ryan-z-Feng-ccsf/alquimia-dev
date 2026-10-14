@@ -39,6 +39,7 @@ class SetupRequest(BaseModel):
     of numbers, and non-finite or out-of-range values are rejected.
     """
 
+    # Reject unknown fields and disable automatic type conversion
     model_config = ConfigDict(extra="forbid", strict=True)
 
     density: Density | None = None
