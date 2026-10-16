@@ -4,7 +4,7 @@ import argparse
 from contextlib import asynccontextmanager
 from pathlib import Path
 import subprocess
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 import anyio
 from mcp.server.mcpserver import MCPServer
@@ -13,10 +13,10 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from .session_manager import SessionManager, list_cases as describe_cases
+from .setup_request import SetupRequest
 from .subprocess_client import EngineProcessError
 
 
-CaseName = Literal["calcite-pflotran", "calcite-crunchflow", "ex8-nn-batch1-onnx"]
 PositiveSeconds = Annotated[float, Field(gt=0, allow_inf_nan=False, strict=True)]
 
 
@@ -43,11 +43,11 @@ def create_server(manager: SessionManager) -> MCPServer:
         version="0.1.0",
         lifespan=lifespan,
         instructions=(
-            "Call list_cases, then setup for a supported benchmark. Retain its session_id. "
+            "Call list_cases, then setup for a case, optionally with a request object overriding its settings. Retain its session_id. "
             "Call initialize once, react with dt in seconds for each step, get_results "
             "to inspect state, and close when finished. Each session has an isolated "
             "native process and artifact directory. Failed native calls end that session; "
-            "create a new one. Chemistry and physical settings are fixed by the benchmark. "
+            "create a new one. Chemistry constraints come from the case input; physical settings default to the benchmark and may be overridden in setup. "
             "ONNX has no pH output and ignores dt during inference. Engines are prebuilt."
         ),
     )
@@ -76,16 +76,19 @@ def create_server(manager: SessionManager) -> MCPServer:
     @server.tool(annotations=read_only)
     async def list_cases() -> dict[str, Any]:
         """List supported cases and benchmark defaults without launching engines."""
-        return describe_cases()
+        return describe_cases(manager.repository)
 
     @server.tool(annotations=mutating)
-    async def setup(case: CaseName) -> dict[str, Any]:
-        """Stage a benchmark and create a session; returns session_id and metadata.
+    async def setup(case: str, request: SetupRequest | None = None) -> dict[str, Any]:
+        """Stage a benchmark and create a session; returns session_id, applied setup and metadata.
 
         Args:
-            case: Identifier returned by list_cases. Chemistry settings are fixed.
+            case: Identifier returned by list_cases.
+            request: Optional overrides of the benchmark's defaults; the schema lists the
+                allowed fields, units and ranges. Omitted fields keep the values shown by
+                list_cases. Invalid or unknown fields are rejected before any engine starts.
         """
-        return await invoke(manager.setup, case)
+        return await invoke(manager.setup, case, request)
 
     @server.tool(annotations=mutating)
     async def initialize(session_id: str) -> dict[str, Any]:
@@ -93,13 +96,14 @@ def create_server(manager: SessionManager) -> MCPServer:
         return await invoke(manager.initialize, session_id)
 
     @server.tool(annotations=mutating)
-    async def react(session_id: str, dt: PositiveSeconds) -> dict[str, Any]:
+    async def react(session_id: str, dt: PositiveSeconds | None = None) -> dict[str, Any]:
         """Perform one reaction and return the new state; repeated calls keep state.
 
         Args:
             session_id: ID returned by setup, after initialize has succeeded.
-            dt: Positive, finite step duration in seconds. ONNX only uses this
-                for recorded time; it does not change model inference.
+            dt: Positive, finite step duration in seconds. Defaults to the session's dt
+                from list_cases or setup's request. ONNX only uses this for recorded
+                time; it does not change model inference.
         """
         return await invoke(manager.react, session_id, dt)
 

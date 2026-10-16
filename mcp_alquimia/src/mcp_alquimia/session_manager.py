@@ -10,35 +10,26 @@ import threading
 from typing import Any
 import uuid
 
-from . import run_crunchflow_calcite, run_onnx_ex8, run_pflotran_calcite
+from .case_catalog import (
+    describe_case, discover_cases, get_case, simulation_controls, stage_case)
+from .setup_request import SetupRequest
 from .subprocess_client import AlquimiaEngineProcess
 
 
-CASES = {
-    "calcite-pflotran": (run_pflotran_calcite.prepare_case, "PFloTran", 50, 5.0),
-    "calcite-crunchflow": (run_crunchflow_calcite.prepare_case, "CrunchFlow", 50, 5.0),
-    "ex8-nn-batch1-onnx": (run_onnx_ex8.prepare_case, "ONNX", 100, 864000.0),
-}
 LOGGER = logging.getLogger(__name__)
 
 
-def list_cases() -> dict[str, Any]:
-    """Describe supported benchmarks without starting or building an engine."""
-    return {"cases": [
-            {
-                "case": name,
-                "engine": engine,
-                "default_max_steps": steps,
-                "default_dt": dt,
-                "dt_units": "s",
-                "notes": (
-                    "Inference ignores dt; pH is null." 
-                    if engine == "ONNX" else "Calcite dissolution with fixed benchmark chemistry."
-                )
-            }
-        for name, (_, engine, steps, dt) in CASES.items()
-        ]
-    }
+def list_cases(repository: str | Path) -> dict[str, Any]:
+    """Describe every benchmark found in the repository without starting an engine.
+
+    Args:
+        repository: Alquimia checkout whose batch-chemistry cfg files are scanned.
+
+    Returns:
+        A "cases" list with each case's engine, input and database files, default
+        settings, and whether all of its files are present.
+    """
+    return {"cases": [describe_case(spec) for spec in discover_cases(repository).values()]}
 
 
 def write_json(path: Path, value: dict[str, Any]) -> None:
@@ -56,6 +47,8 @@ class SimulationSession:
     run_dir: Path
     process: AlquimiaEngineProcess
     metadata: dict[str, Any]
+    dt: float
+    max_steps: int
     history: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -99,21 +92,26 @@ class SessionManager:
         self._sessions: dict[str, SimulationSession] = {}
         self._lock = threading.RLock()
 
-    def setup(self, case: str) -> dict[str, Any]:
-        """Stage a supported case and start a persistent engine process.
+    def setup(self, case: str, request: SetupRequest | None = None) -> dict[str, Any]:
+        """Stage a discovered case and start a persistent engine process.
+
+        Args:
+            case: Identifier from list_cases.
+            request: Optional validated overrides of the case's setup fields.
+                Omitted fields keep the benchmark's values.
 
         Returns:
             Session ID, artifact directory, and native metadata. Initialization
             is a separate operation; setup does not perform a reaction.
 
         Raises:
-            ValueError: The case is unknown or the session limit is reached.
-            OSError: Runtime or assets are missing, or artifact I/O fails.
+            ValueError: The case is unknown, its default initial condition is undefined
+                and the request supplies none, or the session limit is reached.
+            OSError: Runtime or assets (cfg parameters) are missing, or artifact I/O fails.
             EngineProcessError: Native startup or setup fails.
         """
         with self._lock:
-            if case not in CASES:
-                raise ValueError(f"Unknown case {case!r}; call list_cases")
+            spec = get_case(self.repository, case)
             if len(self._sessions) >= self.max_sessions:
                 raise ValueError("Session limit reached; close a session before setup")
             if not self.executable.is_file() or not os.access(self.executable, os.X_OK):
@@ -125,19 +123,25 @@ class SessionManager:
             run_dir = self.run_root / session_id
             process = None
             try:
-                setup = CASES[case][0](self.repository, run_dir)
+                # Without dt, max_steps (for setup)
+                setup = stage_case(spec, run_dir, request)
+                # dt, max_steps (for react)
+                time_step_config = simulation_controls(spec, request)
                 write_json(
                     run_dir / "simulation_request.json", 
                     {
                         "session_id": session_id,
-                        "case": case,
+                        "case": spec.name,
+                        "request": request.model_dump(exclude_none=True) if request else {},
                         "setup": setup,
+                        "simulation": time_step_config,
                         "engine_process": str(self.executable),
                     }
                 )
                 process = AlquimiaEngineProcess(self.executable, run_dir, self.timeout)
                 metadata = process.request("setup", **setup)
-                session = SimulationSession(case, run_dir, process, metadata)
+                session = SimulationSession(
+                    spec.name, run_dir, process, metadata, time_step_config["dt"], time_step_config["max_steps"])
                 self._save(session_id, session, "ready")
                 self._sessions[session_id] = session
             except Exception as error:
@@ -145,8 +149,10 @@ class SessionManager:
                 raise
             return {
                 "session_id": session_id,
-                "case": case,
+                "case": spec.name,
                 "run_dir": str(run_dir),
+                "setup": setup,
+                "simulation": time_step_config,
                 "metadata": metadata
             }
 
@@ -154,13 +160,21 @@ class SessionManager:
         """Apply the benchmark's named initial condition once and return its state."""
         return self._request(session_id, "initialize")
 
-    def react(self, session_id: str, dt: float) -> dict[str, Any]:
-        """Perform one reaction of dt seconds and return the updated state.
+    def react(self, session_id: str, dt: float | None = None) -> dict[str, Any]:
+        """Perform one reaction and return the updated state.
 
-        Non-positive or non-finite dt is rejected before touching native state.
+        Args:
+            session_id: Initialized session.
+            dt: Step duration in seconds; defaults to the session's dt (cfg value
+                or the setup request's override).
+
+        Raises:
+            ValueError: dt is non-positive or non-finite, or the session already
+                performed its max_steps reactions.
+
         ONNX ignores dt during inference; its recorded time still advances.
         """
-        if isinstance(dt, bool) or not math.isfinite(dt) or dt <= 0:
+        if dt is not None and (isinstance(dt, bool) or not math.isfinite(dt) or dt <= 0):
             raise ValueError("dt must be finite and positive (seconds)")
         return self._request(session_id, "react", timestep=dt)
 
@@ -178,6 +192,14 @@ class SessionManager:
                 raise ValueError("Session already initialized")
             if operation != "initialize" and not session.history:
                 raise ValueError("Call initialize before react or get_results")
+            if operation == "react":
+                # Initialized result was added in the history
+                if len(session.history) - 1 >= session.max_steps:
+                    raise ValueError(
+                        f"Session reached its max_steps ({session.max_steps}); "
+                        "close it or set a larger request.max_steps in setup")
+                if parameters["timestep"] is None:
+                    parameters["timestep"] = session.dt
             try:
                 result = session.process.request(operation, **parameters)
                 if operation != "get_results":
