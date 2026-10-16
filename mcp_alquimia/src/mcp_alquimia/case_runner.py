@@ -1,6 +1,5 @@
 """Shared execution and artifact handling for supported chemistry cases."""
 
-import argparse
 import json
 import math
 from pathlib import Path
@@ -92,57 +91,3 @@ def run_case(
         (run_dir / "simulation_failure.json").write_text(
             json.dumps({"error": str(error)}, indent=2) + "\n")
         raise
-
-
-def run_case_cli(
-    run,
-    description: str,
-    *,
-    max_steps: int,
-    dt: float
-    ):
-    """Run a supported case using command-line arguments.
-
-    Prints the final state and output directory as JSON on success.
-
-    Args:
-        run (Callable): Case runner accepting paths, max_steps, dt, and timeout.
-        description (str): Case description displayed by --help.
-        max_steps (int): Default reaction count.
-        dt (float): Default reaction duration in seconds.
-
-    Raises:
-        SystemExit: Help is requested, arguments are invalid, or a handled run
-            failure is reported with a nonzero exit status.
-    """
-    root = Path(__file__).resolve().parents[3]
-    parser = argparse.ArgumentParser(description=description)
-    parser.add_argument("--repository", type=Path, default=root)
-    parser.add_argument("--executable", type=Path,
-                        default=root / "build/mcp_alquimia/bin/alquimia_engine_process")
-    parser.add_argument("--run-dir", type=Path, required=True,
-                        help="New directory for inputs, logs, and structured results")
-    parser.add_argument("--max-steps", type=int, default=max_steps)
-    parser.add_argument("--dt", type=float, default=dt, help="Seconds per step")
-    parser.add_argument("--timeout", type=float, default=60.0, help="Seconds per engine process call")
-    args = parser.parse_args()
-    try:
-        result = run(
-            args.repository,
-            args.executable,
-            args.run_dir,
-            args.max_steps,
-            args.dt,
-            args.timeout
-        )
-    except (RuntimeError, ValueError, OSError) as error:
-        parser.exit(1, f"{error}\n")
-    print(json.dumps(
-        {
-            "run_dir": str(args.run_dir.resolve()),
-            "final_result": result["final"]
-        }, 
-        indent=2, 
-        allow_nan=False
-        )
-    )
