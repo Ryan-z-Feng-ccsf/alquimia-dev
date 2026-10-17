@@ -48,7 +48,7 @@ class CaseSpec:
     physical_condition: Mapping[str, float]
     default_dt: float
     default_max_steps: int
-    # .dbs / .dbsx (CrunchFlow) .dat (PFLOTRAN)
+    # .dbs / .dbsx (CrunchFlow) .dat (PFLOTRAN) .onnx (ONNX)
     database_files: tuple[str, ...] = field(default_factory=tuple)
     undefined_condition: bool = False
 
