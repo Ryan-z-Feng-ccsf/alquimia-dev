@@ -19,7 +19,7 @@ def anyio_backend():
     return "asyncio"
 
 
-@pytest.mark.parametrize("case", ["calcite-pflotran", "calcite-crunchflow", "ex8-nn-batch1-onnx"])
+@pytest.mark.parametrize("case", ["calcite-short-pc-pflotran", "calcite-short-cc-crunch", "ex8-nn-batch1"])
 async def test_stdio_native_lifecycle(repository_root, engine_process_executable, tmp_path, case):
     """Discover tools, react twice, and verify cleanup after the client disconnects."""
     env = dict(os.environ)
@@ -52,7 +52,7 @@ async def test_stdio_native_lifecycle(repository_root, engine_process_executable
         assert (final["time"], final["max_steps"]) == (5, 2)
         polled = await client.call_tool("get_results", {"session_id": session_id})
         assert polled.structured_content["state"] == final
-        assert (final["pH"] is None) == (case == "ex8-nn-batch1-onnx")
+        assert (final["pH"] is None) == (case == "ex8-nn-batch1")
         # Explicit close is exercised through the real transport too. Leave a
         # second session open to exercise EOF/lifespan cleanup below.
         closed = await client.call_tool("close", {"session_id": session_id})
