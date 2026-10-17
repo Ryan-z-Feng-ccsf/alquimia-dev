@@ -4,11 +4,12 @@ import ast
 from collections.abc import Callable
 import configparser
 from dataclasses import dataclass
+import functools
 import subprocess
 
 import pytest
 
-from mcp_alquimia import run_crunchflow_calcite, run_onnx_ex8, run_pflotran_calcite
+from mcp_alquimia.run_batch_chem_case import prepare_case, run_batch_chem_case
 
 
 @dataclass(frozen=True)
@@ -17,30 +18,38 @@ class EngineCase:
 
     Attributes:
         name: Readable pytest case ID.
-        prepare: Function staging inputs and returning native setup arguments.
-        run: Function executing the benchmark with optional numerical overrides.
-        config_name: Original-driver config under benchmarks/batch_chem.
+        case: batch_chem case name, also the cfg stem for the original driver.
         max_steps: Expected default number of reaction steps.
         input_path: Repository-relative input to stage without its companion asset.
     """
 
     name: str
-    prepare: Callable
-    run: Callable
-    config_name: str
+    case: str
     max_steps: int
     input_path: str
 
+    @property
+    def prepare(self):
+        """Stage inputs and return native setup arguments: (repository, run_dir)."""
+        return functools.partial(prepare_case, case=self.case)
+
+    @property
+    def run(self):
+        """Execute the benchmark: (repository, executable, run_dir, **options)."""
+        return functools.partial(run_batch_chem_case, case=self.case)
+
+    @property
+    def config_name(self):
+        """Original-driver config under benchmarks/batch_chem."""
+        return f"{self.case}.cfg"
+
 
 ENGINE_CASES = (
-    EngineCase("pflotran-calcite", run_pflotran_calcite.prepare_case,
-               run_pflotran_calcite.run_calcite, "calcite-short-pc-pflotran.cfg", 50,
+    EngineCase("pflotran-calcite", "calcite-short-pc-pflotran", 50,
                "benchmarks/batch_chem/calcite-short-pflotran.in"),
-    EngineCase("crunchflow-calcite", run_crunchflow_calcite.prepare_case,
-               run_crunchflow_calcite.run_calcite, "calcite-short-cc-crunch.cfg", 50,
+    EngineCase("crunchflow-calcite", "calcite-short-cc-crunch", 50,
                "benchmarks/batch_chem/calcite-short-crunch.in"),
-    EngineCase("onnx-ex8", run_onnx_ex8.prepare_case, run_onnx_ex8.run_ex8,
-               "ex8-nn-batch1.cfg", 100, "models/ex8_nn/ex8_nn_batch1.json"),
+    EngineCase("onnx-ex8", "ex8-nn-batch1", 100, "models/ex8_nn/ex8_nn_batch1.json"),
 )
 
 
