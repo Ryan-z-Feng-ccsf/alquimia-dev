@@ -136,6 +136,7 @@ def read_case(cfg_path: Path) -> CaseSpec:
     """
     parser = configparser.ConfigParser(inline_comment_prefixes=("#",))
     parser.read_string(cfg_path.read_text())
+    # Mapping the C interface string
     engine = ENGINES[parser["chemistry"]["engine"].strip().lower()]
     input_file = (cfg_path.parent / parser["chemistry"]["input_file"]).resolve()
     values = {
@@ -292,6 +293,12 @@ def stage_case(
         OSError: Creating the directory or copying a file fails.
     """
     setup = build_setup(spec, request)
+    # initial_condition = driver_ic
+    # [driver_ic]
+    # This is an invalid condition
+    # TODO:
+    # If passed the same initial conditions, it will pass the branch
+    # We need to setup validation for intial conditions
     if spec.undefined_condition and (request is None or request.initial_condition is None):
             raise ValueError(
             f"Case {spec.name!r} names initial condition {spec.initial_condition!r} only in its "
