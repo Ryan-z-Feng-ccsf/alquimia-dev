@@ -1,4 +1,7 @@
-"""Exercise MCP discovery, session ownership, and failures without native engines."""
+"""Exercise MCP discovery, session ownership, and failures without native engines.
+
+Run the npx @modelcontextprotocol/inspector uv run run_container.py for more info
+"""
 
 import json
 from pathlib import Path
@@ -32,10 +35,13 @@ class FakeEngineProcess:
         self.closed = False
         self.time = 0
         self.steps = 0
+        self.setup_arguments = None
         self.instances.append(self)
 
     def request(self, operation, **parameters):
         """Return a snapshot or a deliberate engine failure."""
+        if operation == "setup":
+            self.setup_arguments = parameters
         if self.fail_operation == operation:
             raise EngineProcessError(f"{operation} failed; log: {self.run_dir}/engine_output.log")
         if operation == "setup":
@@ -82,11 +88,14 @@ async def test_discovery_and_missing_runtime(repository_root, tmp_path):
         listing = await client.list_tools()
         tools = {tool.name: tool for tool in listing.tools}
         assert set(tools) == {"list_cases", "setup", "initialize", "react", "get_results", "close"}
-        assert tools["setup"].input_schema["properties"]["case"]["enum"] == [
-            "calcite-pflotran", "calcite-crunchflow", "ex8-nn-batch1-onnx"]
-        assert tools["react"].input_schema["properties"]["dt"]["exclusiveMinimum"] == 0
-        assert len((await call(client, "list_cases"))["cases"]) == 3
-        error = await client.call_tool("setup", {"case": "calcite-pflotran"})
+        assert tools["setup"].input_schema["properties"]["case"]["type"] == "string"
+        assert "request" in tools["setup"].input_schema["properties"]
+        # dt has a default value
+        assert "dt" not in tools["react"].input_schema.get("required", [])
+        names = {item["case"] for item in (await call(client, "list_cases"))["cases"]}
+        # Check subset
+        assert {"calcite-short-pc-pflotran", "calcite-short-cc-crunch", "ex8-nn-batch1"} <= names
+        error = await client.call_tool("setup", {"case": "calcite-short-pc-pflotran"})
         assert error.is_error
         assert "Build it explicitly" in error.content[0].text
         assert not (tmp_path / "runs").exists()
@@ -96,11 +105,11 @@ async def test_discovery_and_missing_runtime(repository_root, tmp_path):
 async def test_sessions_lifecycle_isolation_and_disconnect(manager):
     """Separate sessions retain separate states; disconnect reaps open processes."""
     async with Client(create_server(manager)) as client:
-        first = await call(client, "setup", case="calcite-pflotran")
-        second = await call(client, "setup", case="ex8-nn-batch1-onnx")
+        first = await call(client, "setup", case="calcite-short-pc-pflotran")
+        second = await call(client, "setup", case="ex8-nn-batch1")
         a, b = first["session_id"], second["session_id"]
         assert a != b
-        limited = await client.call_tool("setup", {"case": "calcite-crunchflow"})
+        limited = await client.call_tool("setup", {"case": "calcite-short-cc-crunch"})
         assert limited.is_error
         early = await client.call_tool("react", {"session_id": a, "dt": 5})
         assert early.is_error
@@ -123,7 +132,7 @@ async def test_sessions_lifecycle_isolation_and_disconnect(manager):
         unknown = await client.call_tool("get_results", {"session_id": a})
         assert unknown.is_error
         # Closing one session releases its slot.
-        await call(client, "setup", case="calcite-crunchflow")
+        await call(client, "setup", case="calcite-short-cc-crunch")
     assert all(process.closed for process in FakeEngineProcess.instances)
     assert manager._sessions == {}
     saved = json.loads((Path(first["run_dir"]) / "simulation_results.json").read_text())
@@ -139,7 +148,7 @@ async def test_invalid_arguments_preserve_session(manager):
         bad_case = await client.call_tool("setup", {"case": "arbitrary-file"})
         assert bad_case.is_error
         assert not manager.run_root.exists()
-        setup = await call(client, "setup", case="calcite-pflotran")
+        setup = await call(client, "setup", case="calcite-short-pc-pflotran")
         session_id = setup["session_id"]
         await call(client, "initialize", session_id=session_id)
         for dt in (-1, 0, True, "5"):
@@ -159,9 +168,9 @@ async def test_native_failure_releases_session_and_keeps_diagnosis(manager, monk
     """Failed operations release their slot and preserve engine diagnostics."""
     async with Client(create_server(manager)) as client:
         if operation == "setup":
-            arguments = {"case": "calcite-pflotran"}
+            arguments = {"case": "calcite-short-pc-pflotran"}
         else:
-            setup = await call(client, "setup", case="calcite-pflotran")
+            setup = await call(client, "setup", case="calcite-short-pc-pflotran")
             arguments = {"session_id": setup["session_id"]}
             if operation == "react":
                 await call(client, "initialize", **arguments)
@@ -182,8 +191,8 @@ async def test_native_failure_releases_session_and_keeps_diagnosis(manager, monk
 async def test_cleanup_continues_after_one_close_failure(manager, monkeypatch):
     """A shutdown error must not leave other sessions running."""
     async with Client(create_server(manager)) as client:
-        await call(client, "setup", case="calcite-pflotran")
-        await call(client, "setup", case="calcite-crunchflow")
+        await call(client, "setup", case="calcite-short-pc-pflotran")
+        await call(client, "setup", case="calcite-short-cc-crunch")
         process = FakeEngineProcess.instances[0]
         def fail_close():
             process.closed = True
@@ -213,7 +222,7 @@ async def test_cancelled_setup_does_not_orphan_process(manager, monkeypatch):
     async with Client(create_server(manager)) as client:
         async with anyio.create_task_group() as group:
             async def setup():
-                await client.call_tool("setup", {"case": "calcite-pflotran"})
+                await client.call_tool("setup", {"case": "calcite-short-pc-pflotran"})
             
             # Start the setup request in the background (another thread)
             # main thread continues
@@ -233,3 +242,100 @@ async def test_cancelled_setup_does_not_orphan_process(manager, monkeypatch):
     assert len(FakeEngineProcess.instances) == 1
     assert FakeEngineProcess.instances[0].closed
     assert not manager._sessions
+
+
+@pytest.mark.anyio
+async def test_setup_request_overrides_and_is_recorded(manager):
+    """A client request overrides benchmark defaults and is saved with the session."""
+    async with Client(create_server(manager)) as client:
+        session = await call(client, "setup", case="calcite-short-pc-pflotran",
+                             request={"temperature": 60.0, "porosity": 0.3})
+        setup_arguments = FakeEngineProcess.instances[0].setup_arguments
+        assert setup_arguments["temperature"] == 60.0 and setup_arguments["porosity"] == 0.3
+        assert setup_arguments["density"] == 997.16 and setup_arguments["engine"] == "PFloTran"
+        assert session["setup"] == setup_arguments and session["case"] == "calcite-short-pc-pflotran"
+        saved = json.loads((Path(session["run_dir"]) / "simulation_request.json").read_text())
+        assert saved["request"] == {"temperature": 60.0, "porosity": 0.3}
+
+
+@pytest.mark.anyio
+async def test_invalid_request_is_rejected_before_launch(manager):
+    """Bad fields fail without creating a run directory or process."""
+    async with Client(create_server(manager)) as client:
+        for request in ({"input_file": "/etc/passwd"}, {"porosity": 2}, {"density": "heavy"},
+                        {"density": True}, {"initial_condition": ""}):
+            error = await client.call_tool("setup", {"case": "calcite-short-pc-pflotran", "request": request})
+            assert error.is_error
+        assert FakeEngineProcess.instances == []
+        assert not manager.run_root.exists() or not any(manager.run_root.iterdir())
+
+
+@pytest.mark.anyio
+async def test_setup_schema_exposes_the_typed_request(manager):
+    """The agent can read the allowed request fields, and no others, from the tool schema."""
+    async with Client(create_server(manager)) as client:
+        tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+        schema = tools["setup"].input_schema
+        request = schema["$defs"]["SetupRequest"]
+        assert set(request["properties"]) == {
+            "density", "porosity", "temperature", "pressure", "volume", "saturation",
+            "initial_condition", "dt", "max_steps"}
+        assert request["additionalProperties"] is False
+        assert "request" not in schema.get("required", [])
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("case, engine", [
+    ("calcite-short-pc-pflotran", "PFloTran"),
+    ("calcite-short-cc-crunch", "CrunchFlow"),
+    ("ex8-nn-batch1", "ONNX"),
+])
+async def test_request_overrides_apply_to_every_engine(manager, case, engine):
+    """Overrides are not calcite-specific; each engine receives the merged setup."""
+    async with Client(create_server(manager)) as client:
+        session = await call(client, "setup", case=case, request={"temperature": 40.0})
+        setup_arguments = FakeEngineProcess.instances[0].setup_arguments
+        assert setup_arguments["engine"] == engine and setup_arguments["temperature"] == 40.0
+        assert session["setup"] == setup_arguments
+
+
+@pytest.mark.anyio
+async def test_undefined_default_condition_requires_a_request(manager):
+    """An *-ac-* case refuses to start until the agent names a condition that exists."""
+    async with Client(create_server(manager)) as client:
+        refused = await client.call_tool("setup", {"case": "calcite-short-ac-pflotran"})
+        assert refused.is_error and "request.initial_condition" in refused.content[0].text
+        assert FakeEngineProcess.instances == []
+        created = await call(client, "setup", case="calcite-short-ac-pflotran",
+                             request={"initial_condition": "initial"})
+        assert created["setup"]["initial_condition"] == "initial"
+
+
+@pytest.mark.anyio
+async def test_request_controls_dt_and_max_steps(manager):
+    """dt and max_steps are session controls: not sent to the engine setup, used by react."""
+    async with Client(create_server(manager)) as client:
+        session = await call(client, "setup", case="calcite-short-pc-pflotran",
+                             request={"dt": 7.5, "max_steps": 2})
+        assert session["simulation"] == {"dt": 7.5, "max_steps": 2}
+        setup_arguments = FakeEngineProcess.instances[0].setup_arguments
+        assert "dt" not in setup_arguments and "max_steps" not in setup_arguments
+        session_id = session["session_id"]
+        await call(client, "initialize", session_id=session_id)
+        await call(client, "react", session_id=session_id)
+        await call(client, "react", session_id=session_id, dt=3)
+        # max_steps is 2
+        refused = await client.call_tool("react", {"session_id": session_id})
+        assert refused.is_error and "max_steps" in refused.content[0].text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("request_body", [
+    {"dt": 0}, {"dt": -1.0}, {"dt": "5"}, {"max_steps": -1}, {"max_steps": 1.5}, {"max_steps": True}])
+async def test_invalid_controls_are_rejected_before_launch(manager, request_body):
+    """Bad dt or max_steps never starts an engine."""
+    async with Client(create_server(manager)) as client:
+        result = await client.call_tool(
+            "setup", {"case": "calcite-short-pc-pflotran", "request": request_body})
+        assert result.is_error
+        assert FakeEngineProcess.instances == []
