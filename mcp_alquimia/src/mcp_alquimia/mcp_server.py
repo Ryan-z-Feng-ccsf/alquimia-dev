@@ -4,20 +4,27 @@ import argparse
 from contextlib import asynccontextmanager
 from pathlib import Path
 import subprocess
-from typing import Annotated, Any
+from typing import Any
 
 import anyio
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
-from pydantic import Field
+from pydantic import ValidationError
 
 from .session_manager import SessionManager, list_cases as describe_cases
 from .setup_request import SetupRequest
 from .subprocess_client import EngineProcessError
+from .time_config_request import TimeConfigRequest
 
 
-PositiveSeconds = Annotated[float, Field(gt=0, allow_inf_nan=False, strict=True)]
+def describe_validation_error(error: ValidationError) -> str:
+    """Summarize each failing field as `location: message` for the client."""
+    details = "; ".join(
+        f"{'.'.join(str(part) for part in item['loc']) or '<root>'}: {item['msg']}"
+        for item in error.errors()
+    )
+    return f"Invalid {error.title}: {details}"
 
 
 def create_server(manager: SessionManager) -> MCPServer:
@@ -44,7 +51,8 @@ def create_server(manager: SessionManager) -> MCPServer:
         lifespan=lifespan,
         instructions=(
             "Call list_cases, then setup for a case, optionally with a request object overriding its settings. Retain its session_id. "
-            "Call initialize once, react with dt in seconds for each step, get_results "
+            "Call initialize once, then react for each step, optionally with a time_config "
+            "object overriding dt (seconds) and max_steps for the rest of the session. Call get_results "
             "to inspect state, and close when finished. Each session has an isolated "
             "native process and artifact directory. Failed native calls end that session; "
             "create a new one. Chemistry constraints come from the case input; physical settings default to the benchmark and may be overridden in setup. "
@@ -70,6 +78,8 @@ def create_server(manager: SessionManager) -> MCPServer:
             # The default cancellation shielding keeps ownership until the native
             # call returns or times out, allowing lifespan cleanup to reap it.
             return await anyio.to_thread.run_sync(function, *args)
+        except ValidationError as error:
+            raise ToolError(describe_validation_error(error)) from error
         except (EngineProcessError, OSError, ValueError, subprocess.TimeoutExpired) as error:
             raise ToolError(str(error)) from error
 
@@ -96,16 +106,20 @@ def create_server(manager: SessionManager) -> MCPServer:
         return await invoke(manager.initialize, session_id)
 
     @server.tool(annotations=mutating)
-    async def react(session_id: str, dt: PositiveSeconds | None = None) -> dict[str, Any]:
+    async def react(
+        session_id: str,
+        time_config: TimeConfigRequest | None = None
+    ) -> dict[str, Any]:
         """Perform one reaction and return the new state; repeated calls keep state.
 
         Args:
             session_id: ID returned by setup, after initialize has succeeded.
-            dt: Positive, finite step duration in seconds. Defaults to the session's dt
-                from list_cases or setup's request. ONNX only uses this for recorded
-                time; it does not change model inference.
+            time_config: Optional overrides of the session's dt (seconds) and max_steps,
+                which start at the cfg values shown by list_cases. Set values persist
+                for later react calls. ONNX only uses dt for recorded time; it does
+                not change model inference.
         """
-        return await invoke(manager.react, session_id, dt)
+        return await invoke(manager.react, session_id, time_config)
 
     @server.tool(annotations=read_only)
     async def get_results(session_id: str) -> dict[str, Any]:

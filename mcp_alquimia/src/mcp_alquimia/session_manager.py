@@ -11,9 +11,10 @@ from typing import Any
 import uuid
 
 from .case_catalog import (
-    describe_case, discover_cases, get_case, simulation_controls, stage_case)
+    describe_case, discover_cases, get_case, default_time_config, stage_case)
 from .setup_request import SetupRequest
 from .subprocess_client import AlquimiaEngineProcess
+from .time_config_request import TimeConfigRequest
 
 
 LOGGER = logging.getLogger(__name__)
@@ -123,10 +124,9 @@ class SessionManager:
             run_dir = self.run_root / session_id
             process = None
             try:
-                # Without dt, max_steps (for setup)
                 setup = stage_case(spec, run_dir, request)
-                # dt, max_steps (for react)
-                time_step_config = simulation_controls(spec, request)
+                # Starting dt and max_steps; react's TimeConfigRequest may change them
+                time_step_config = default_time_config(spec)
                 write_json(
                     run_dir / "simulation_request.json", 
                     {
@@ -160,23 +160,27 @@ class SessionManager:
         """Apply the benchmark's named initial condition once and return its state."""
         return self._request(session_id, "initialize")
 
-    def react(self, session_id: str, dt: float | None = None) -> dict[str, Any]:
+    def react(
+        self,
+        session_id: str,
+        time_config: TimeConfigRequest | None = None
+    ) -> dict[str, Any]:
         """Perform one reaction and return the updated state.
 
         Args:
             session_id: Initialized session.
-            dt: Step duration in seconds; defaults to the session's dt (cfg value
-                or the setup request's override).
+            time_config: Optional validated overrides of the session's dt (seconds)
+                and max_steps. Set values persist for later reactions once this
+                step is accepted; omitted fields keep the session's current values
+                (initially the cfg's).
 
         Raises:
-            ValueError: dt is non-positive or non-finite, or the session already
-                performed its max_steps reactions.
+            ValueError: The session already performed its max_steps reactions.
 
         ONNX ignores dt during inference; its recorded time still advances.
         """
-        if dt is not None and (isinstance(dt, bool) or not math.isfinite(dt) or dt <= 0):
-            raise ValueError("dt must be finite and positive (seconds)")
-        return self._request(session_id, "react", timestep=dt)
+        return self._request(
+            session_id, "react", time_config=time_config or TimeConfigRequest())
 
     def get_results(self, session_id: str) -> dict[str, Any]:
         """Return the latest initialized state without advancing the engine."""
@@ -193,13 +197,19 @@ class SessionManager:
             if operation != "initialize" and not session.history:
                 raise ValueError("Call initialize before react or get_results")
             if operation == "react":
+                time_config = {
+                    "dt": session.dt,
+                    "max_steps": session.max_steps,
+                    **parameters.pop("time_config").overrides(),
+                }
                 # Initialized result was added in the history
-                if len(session.history) - 1 >= session.max_steps:
+                if len(session.history) - 1 >= time_config["max_steps"]:
                     raise ValueError(
-                        f"Session reached its max_steps ({session.max_steps}); "
-                        "close it or set a larger request.max_steps in setup")
-                if parameters["timestep"] is None:
-                    parameters["timestep"] = session.dt
+                        f"Session reached its max_steps ({time_config['max_steps']}); "
+                        "close it or pass a larger time_config.max_steps to react")
+                session.dt, session.max_steps = time_config["dt"], time_config["max_steps"]
+                parameters["timestep"] = session.dt
+                parameters["max_steps"] = session.max_steps
             try:
                 result = session.process.request(operation, **parameters)
                 if operation != "get_results":
