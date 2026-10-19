@@ -90,8 +90,8 @@ async def test_discovery_and_missing_runtime(repository_root, tmp_path):
         assert set(tools) == {"list_cases", "setup", "initialize", "react", "get_results", "close"}
         assert tools["setup"].input_schema["properties"]["case"]["type"] == "string"
         assert "request" in tools["setup"].input_schema["properties"]
-        # dt has a default value
-        assert "dt" not in tools["react"].input_schema.get("required", [])
+        # time_config has a default value
+        assert "time_config" not in tools["react"].input_schema.get("required", [])
         names = {item["case"] for item in (await call(client, "list_cases"))["cases"]}
         # Check subset
         assert {"calcite-short-pc-pflotran", "calcite-short-cc-crunch", "ex8-nn-batch1"} <= names
@@ -111,7 +111,7 @@ async def test_sessions_lifecycle_isolation_and_disconnect(manager):
         assert a != b
         limited = await client.call_tool("setup", {"case": "calcite-short-cc-crunch"})
         assert limited.is_error
-        early = await client.call_tool("react", {"session_id": a, "dt": 5})
+        early = await client.call_tool("react", {"session_id": a, "time_config": {"dt": 5}})
         assert early.is_error
         assert "Call initialize" in early.content[0].text
         await call(client, "initialize", session_id=a)
@@ -121,7 +121,7 @@ async def test_sessions_lifecycle_isolation_and_disconnect(manager):
         # Simultaneous MCP calls must not interleave writes to the same process.
         async with anyio.create_task_group() as group:
             async def react(dt):
-                await call(client, "react", session_id=a, dt=dt)
+                await call(client, "react", session_id=a, time_config={"dt": dt})
             group.start_soon(react, 2.0)
             group.start_soon(react, 3.0)
         state = (await call(client, "get_results", session_id=a))["state"]
@@ -151,14 +151,12 @@ async def test_invalid_arguments_preserve_session(manager):
         setup = await call(client, "setup", case="calcite-short-pc-pflotran")
         session_id = setup["session_id"]
         await call(client, "initialize", session_id=session_id)
-        for dt in (-1, 0, True, "5"):
-            # Call from the client
-            result = await client.call_tool("react", {"session_id": session_id, "dt": dt})
+        for time_config in ({"dt": -1}, {"dt": 0}, {"dt": True}, {"dt": "5"}, {"max_steps": 0},
+                            {"max_steps": 1.5}, {"max_steps": True}, {"timestep": 5}):
+            result = await client.call_tool(
+                "react", {"session_id": session_id, "time_config": time_config})
             assert result.is_error
-        for dt in (float("nan"), float("inf")):
-            with pytest.raises(ValueError, match="finite"):
-                # Directly call the react function
-                manager.react(session_id, dt)
+            assert "time_config" in result.content[0].text
         assert (await call(client, "get_results", session_id=session_id))["state"]["time"] == 0
 
 
@@ -174,7 +172,7 @@ async def test_native_failure_releases_session_and_keeps_diagnosis(manager, monk
             arguments = {"session_id": setup["session_id"]}
             if operation == "react":
                 await call(client, "initialize", **arguments)
-                arguments["dt"] = 5
+                arguments["time_config"] = {"dt": 5}
         monkeypatch.setattr(FakeEngineProcess, "fail_operation", operation)
         result = await client.call_tool(operation, arguments)
         assert result.is_error
@@ -279,7 +277,7 @@ async def test_setup_schema_exposes_the_typed_request(manager):
         request = schema["$defs"]["SetupRequest"]
         assert set(request["properties"]) == {
             "density", "porosity", "temperature", "pressure", "volume", "saturation",
-            "initial_condition", "dt", "max_steps"}
+            "initial_condition"}
         assert request["additionalProperties"] is False
         assert "request" not in schema.get("required", [])
 
@@ -312,28 +310,52 @@ async def test_undefined_default_condition_requires_a_request(manager):
 
 
 @pytest.mark.anyio
-async def test_request_controls_dt_and_max_steps(manager):
-    """dt and max_steps are session controls: not sent to the engine setup, used by react."""
+async def test_time_config_overrides_dt_and_max_steps(manager):
+    """react's time_config overrides the cfg dt and max_steps and persists in the session."""
     async with Client(create_server(manager)) as client:
-        session = await call(client, "setup", case="calcite-short-pc-pflotran",
-                             request={"dt": 7.5, "max_steps": 2})
-        assert session["simulation"] == {"dt": 7.5, "max_steps": 2}
-        setup_arguments = FakeEngineProcess.instances[0].setup_arguments
-        assert "dt" not in setup_arguments and "max_steps" not in setup_arguments
+        session = await call(client, "setup", case="calcite-short-pc-pflotran")
+        defaults_time_config = session["simulation"]
         session_id = session["session_id"]
         await call(client, "initialize", session_id=session_id)
-        await call(client, "react", session_id=session_id)
-        await call(client, "react", session_id=session_id, dt=3)
-        # max_steps is 2
+        state = (await call(client, "react", session_id=session_id))["state"]
+        assert state["time"] == defaults_time_config["dt"]
+        await call(client, "react", session_id=session_id,
+                   time_config={"dt": 7.5, "max_steps": 3})
+        # dt persists for the next call
+        state = (await call(client, "react", session_id=session_id))["state"]
+        assert state["time"] == defaults_time_config["dt"] + 15
         refused = await client.call_tool("react", {"session_id": session_id})
         assert refused.is_error and "max_steps" in refused.content[0].text
+        # A rejected step does not change the session's dt
+        refused = await client.call_tool(
+            "react", {"session_id": session_id, "time_config": {"dt": 1.0}})
+        assert refused.is_error
+        await call(client, "react", session_id=session_id, time_config={"max_steps": 4})
+        state = (await call(client, "get_results", session_id=session_id))["state"]
+        assert state["time"] == defaults_time_config["dt"] + 22.5
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("request_body", [
-    {"dt": 0}, {"dt": -1.0}, {"dt": "5"}, {"max_steps": -1}, {"max_steps": 1.5}, {"max_steps": True}])
-async def test_invalid_controls_are_rejected_before_launch(manager, request_body):
-    """Bad dt or max_steps never starts an engine."""
+async def test_validation_error_becomes_tool_error_with_field_details(manager, monkeypatch):
+    """A ValidationError raised behind the tool boundary is reported, not a crash."""
+    from mcp_alquimia.time_config_request import TimeConfigRequest
+
+    def react(session_id, time_config):
+        TimeConfigRequest.model_validate({"dt": -1, "extra": 1})
+
+    monkeypatch.setattr(manager, "react", react)
+    async with Client(create_server(manager)) as client:
+        result = await client.call_tool("react", {"session_id": "x"})
+        assert result.is_error
+        text = result.content[0].text
+        assert "Invalid TimeConfigRequest" in text and "dt:" in text and "extra:" in text
+        assert (await client.call_tool("list_cases")).is_error is False
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("request_body", [{"dt": 5.0}, {"max_steps": 2}])
+async def test_setup_rejects_time_config_fields(manager, request_body):
+    """dt and max_steps belong to react's time_config, not setup's request."""
     async with Client(create_server(manager)) as client:
         result = await client.call_tool(
             "setup", {"case": "calcite-short-pc-pflotran", "request": request_body})
