@@ -197,17 +197,17 @@ class SessionManager:
             if operation != "initialize" and not session.history:
                 raise ValueError("Call initialize before react or get_results")
             if operation == "react":
-                time_config = {
+                react_time_config = {
                     "dt": session.dt,
                     "max_steps": session.max_steps,
                     **parameters.pop("time_config").overrides(),
                 }
                 # Initialized result was added in the history
-                if len(session.history) - 1 >= time_config["max_steps"]:
+                if len(session.history) - 1 >= react_time_config["max_steps"]:
                     raise ValueError(
-                        f"Session reached its max_steps ({time_config['max_steps']}); "
+                        f"Session reached its max_steps ({react_time_config['max_steps']}); "
                         "close it or pass a larger time_config.max_steps to react")
-                session.dt, session.max_steps = time_config["dt"], time_config["max_steps"]
+                session.dt, session.max_steps = react_time_config["dt"], react_time_config["max_steps"]
                 parameters["timestep"] = session.dt
                 
             try:
