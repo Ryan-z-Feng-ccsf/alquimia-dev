@@ -85,8 +85,7 @@ COPY --from=server-build /opt/alquimia/benchmarks/batch_chem/*.cfg \
      /opt/alquimia/benchmarks/batch_chem/*.dbs \
      /opt/alquimia/benchmarks/batch_chem/*.dat \
      /opt/alquimia/benchmarks/batch_chem/*.dbsx benchmarks/batch_chem/
-COPY --from=server-build /opt/alquimia/models/ex8_nn/ex8_nn_batch1.json \
-     /opt/alquimia/models/ex8_nn/ex8_nn_batch1.onnx models/ex8_nn/
+COPY --from=server-build /opt/alquimia/models/ models/
 COPY LICENSE.txt ./
 
 # Update the PATH for Python executable
