@@ -46,7 +46,7 @@ async def test_stdio_native_lifecycle(repository_root, engine_process_executable
         assert not initialized.is_error, initialized
         assert initialized.structured_content["state"]["time"] == 0
         for dt in (2.0, 3.0):
-            result = await client.call_tool("react", {"session_id": session_id, "dt": dt})
+            result = await client.call_tool("react", {"session_id": session_id, "time_config": {"dt": dt}})
             assert not result.is_error, result
         final = result.structured_content["state"]
         assert (final["time"], final["max_steps"]) == (5, 2)
