@@ -45,7 +45,12 @@ async def smoke(image: str, docker_host: str | None, output: Path) -> dict:
         cases = await client.call_tool("list_cases")
         assert not cases.is_error, cases
         for case in cases.structured_content["cases"]:
-            setup = await client.call_tool("setup", {"case": case["case"]})
+            # An *-ac-* case names a driver_ic condition its input does not define,
+            # so the client must pick one that exists; max_steps covers the two reacts.
+            request = {"max_steps": 2}
+            if case["requires_initial_condition"]:
+                request["initial_condition"] = "initial"
+            setup = await client.call_tool("setup", {"case": case["case"], "request": request})
             assert not setup.is_error, setup
             session_id = setup.structured_content["session_id"]
             initialized = await client.call_tool("initialize", {"session_id": session_id})
@@ -70,7 +75,7 @@ async def smoke(image: str, docker_host: str | None, output: Path) -> dict:
                 }
             )
 
-        leftover = await client.call_tool("setup", {"case": "calcite-pflotran"})
+        leftover = await client.call_tool("setup", {"case": "calcite-short-pc-pflotran"})
         assert not leftover.is_error, leftover
         leftover_id = leftover.structured_content["session_id"]
     # Test the forcily exit (close all the sessions)
