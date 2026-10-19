@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from mcp_alquimia.case_catalog import (
     build_setup, describe_case, discover_cases, get_case, referenced_files, stage_case)
 from mcp_alquimia.setup_request import SetupRequest
+from mcp_alquimia.time_config_request import TimeConfigRequest
 
 # Pytest fixture
 def write_case(repository, cfg_extra="", in_database="database  x.dbs\ndatabase_sweep false\n"):
@@ -112,6 +113,8 @@ def test_reference_escaping_the_input_directory_is_rejected(tmp_path):
     {"initial_condition": ""},
     {"initial_condition": "x" * 256},
     {"initial_condition": 1},
+    {"dt": 5.0},    # Belongs to TimeConfigRequest
+    {"max_steps": 2},
 ])
 def test_invalid_requests_are_rejected(request_body):
     """Unknown, mistyped, non-finite and out-of-range fields never become a request."""
@@ -144,3 +147,22 @@ def test_undefined_default_condition_needs_a_request(tmp_path):
     assert not (tmp_path / "runs").exists()
     stage_case(spec, tmp_path / "runs", SetupRequest(initial_condition="initial"))
     assert (tmp_path / "runs" / "case.in").is_file()
+
+
+@pytest.mark.parametrize("time_config", [
+    {"dt": 0}, {"dt": -1.0}, {"dt": "5"}, {"dt": True}, {"dt": float("nan")},
+    {"dt": float("inf")}, {"max_steps": 0}, {"max_steps": 1.5}, {"max_steps": True},
+    {"timestep": 5.0},
+])
+def test_invalid_time_configs_are_rejected(time_config):
+    """Unknown, mistyped, non-finite and out-of-range time fields never become a request."""
+    with pytest.raises(ValidationError):
+        TimeConfigRequest.model_validate(time_config)
+
+
+def test_time_config_overrides_only_what_was_set():
+    """Omitted time fields are left to the session's current values."""
+    assert TimeConfigRequest().overrides() == {}
+    assert TimeConfigRequest(dt=2.5).overrides() == {"dt": 2.5}
+    assert TimeConfigRequest.model_validate_json('{"max_steps": 3}').model_dump_json() == (
+        '{"dt":null,"max_steps":3}')
