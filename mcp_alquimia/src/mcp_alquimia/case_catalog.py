@@ -258,13 +258,9 @@ def build_setup(spec: CaseSpec, request: SetupRequest | None = None) -> dict[str
     }
 
 
-def simulation_controls(spec: CaseSpec, request: SetupRequest | None = None) -> dict[str, Any]:
-    """Return the session's dt (seconds) and max_steps: cfg defaults, then request overrides."""
-    return {
-        "dt": spec.default_dt,
-        "max_steps": spec.default_max_steps,
-        **(request.controls() if request else {}),
-    }
+def default_time_config(spec: CaseSpec) -> dict[str, Any]:
+    """Return the case's cfg dt (seconds) and max_steps, the session's starting values."""
+    return {"dt": spec.default_dt, "max_steps": spec.default_max_steps}
 
 
 def stage_case(
