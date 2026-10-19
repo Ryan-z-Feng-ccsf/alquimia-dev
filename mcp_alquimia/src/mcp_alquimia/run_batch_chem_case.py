@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from .case_catalog import case_cfg_path, read_case, simulation_controls, stage_case
+from .case_catalog import case_cfg_path, read_case, default_time_config, stage_case
 from .case_runner import run_case
 from .setup_request import SetupRequest
 
@@ -61,7 +61,7 @@ def run_batch_chem_case(
         max_steps (int, optional): Nonnegative reaction count; zero only initializes.
             Defaults to the cfg's max_steps.
         dt (float, optional): Positive, finite seconds per reaction. Defaults to the
-            request's dt, then the cfg's timestep.
+            cfg's timestep.
         timeout (float): Positive, finite seconds per response.
         request (SetupRequest, optional): Validated overrides of the cfg settings.
 
@@ -74,7 +74,7 @@ def run_batch_chem_case(
         EngineProcessError: Native execution or communication fails.
     """
     spec = read_case(case_cfg_path(repository, case))
-    controls = simulation_controls(spec, request)
+    controls = default_time_config(spec)
     return run_case(
         repository,
         executable,
