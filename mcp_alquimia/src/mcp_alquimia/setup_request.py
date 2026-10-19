@@ -22,20 +22,13 @@ InitialCondition = Annotated[
         max_length=255,
         description="Name of an initial condition defined in the case's input file."),
 ]
-Timestep = Annotated[
-    float, Field(gt=0, allow_inf_nan=False, description="Default seconds per react call.")]
-MaxSteps = Annotated[
-    int, Field(ge=1, description="Maximum number of react calls allowed in the session.")]
-
-# Session controls handled by the server; every other field is a native setup argument.
-CONTROL_FIELDS = {"dt", "max_steps"}
-
 
 class SetupRequest(BaseModel):
     """Overrides for a case's benchmark defaults; omitted fields keep the cfg values.
 
     The input file and engine are deliberately not fields, so a request can never
-    point the engine at another file. Unknown fields, booleans or strings in place
+    point the engine at another file. Time stepping (dt, max_steps) belongs to
+    TimeConfigRequest, sent with react. Unknown fields, booleans or strings in place
     of numbers, and non-finite or out-of-range values are rejected.
     """
 
@@ -49,13 +42,7 @@ class SetupRequest(BaseModel):
     volume: Volume | None = None
     saturation: Saturation | None = None
     initial_condition: InitialCondition | None = None
-    dt: Timestep | None = None
-    max_steps: MaxSteps | None = None
 
     def overrides(self) -> dict[str, float | str]:
         """Return only the native setup fields the caller set."""
-        return self.model_dump(exclude_none=True, exclude=CONTROL_FIELDS)
-
-    def controls(self) -> dict[str, float | int]:
-        """Return only the session controls (dt, max_steps) the caller set."""
-        return self.model_dump(exclude_none=True, include=CONTROL_FIELDS)
+        return self.model_dump(exclude_none=True)
