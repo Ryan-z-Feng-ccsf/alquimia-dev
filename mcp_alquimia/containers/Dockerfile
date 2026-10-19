@@ -43,7 +43,8 @@ RUN test "$(uname -m)" = x86_64 \
 FROM native-build AS server-build
 ARG UV_VERSION=0.12.3
 RUN python3.10 -m pip install --no-cache-dir "uv==${UV_VERSION}"
-COPY models/ex8_nn/ models/ex8_nn/
+
+COPY models/ models/
 COPY mcp_alquimia/ mcp_alquimia/
 ENV UV_PROJECT_ENVIRONMENT=/opt/alquimia/venv UV_LINK_MODE=copy
 # Build the entry point for the C subprocess

@@ -16,6 +16,10 @@
 models/*
 !models/ex8_nn/
 !models/ex8_nn/**
+!models/ex8_rf/
+!models/ex8_rf/**
+!models/lsurf/
+!models/lsurf/**
 !mcp_alquimia/
 mcp_alquimia/*
 !mcp_alquimia/pyproject.toml
