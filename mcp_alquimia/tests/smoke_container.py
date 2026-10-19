@@ -46,8 +46,8 @@ async def smoke(image: str, docker_host: str | None, output: Path) -> dict:
         assert not cases.is_error, cases
         for case in cases.structured_content["cases"]:
             # An *-ac-* case names a driver_ic condition its input does not define,
-            # so the client must pick one that exists; max_steps covers the two reacts.
-            request = {"max_steps": 2}
+            # so the client must pick one that exists.
+            request = {}
             if case["requires_initial_condition"]:
                 request["initial_condition"] = "initial"
             setup = await client.call_tool("setup", {"case": case["case"], "request": request})
@@ -56,7 +56,9 @@ async def smoke(image: str, docker_host: str | None, output: Path) -> dict:
             initialized = await client.call_tool("initialize", {"session_id": session_id})
             assert not initialized.is_error, initialized
             for dt in (2.0, 3.0):
-                result = await client.call_tool("react", {"session_id": session_id, "dt": dt})
+                # max_steps covers the two reacts even if the cfg allows fewer.
+                result = await client.call_tool(
+                    "react", {"session_id": session_id, "time_config": {"dt": dt, "max_steps": 2}})
                 assert not result.is_error, result
             final = result.structured_content["state"]
             assert (final["time"], final["max_steps"]) == (5, 2)
