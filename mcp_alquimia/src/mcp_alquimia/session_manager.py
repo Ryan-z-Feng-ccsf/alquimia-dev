@@ -209,7 +209,7 @@ class SessionManager:
                         "close it or pass a larger time_config.max_steps to react")
                 session.dt, session.max_steps = time_config["dt"], time_config["max_steps"]
                 parameters["timestep"] = session.dt
-                parameters["max_steps"] = session.max_steps
+                
             try:
                 result = session.process.request(operation, **parameters)
                 if operation != "get_results":
