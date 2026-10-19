@@ -1,5 +1,5 @@
 # cd project root
-# docker build -t alquimia-mcp:local -f mcp/-f mcp_alquimia/containers/Dockerfile .
+# docker build -t alquimia-mcp:local -f mcp_alquimia/containers/Dockerfile .
 # Ubuntu 22.04 supplies /usr/bin/python3.10, required by the PETSc superbuild.
 FROM ubuntu:22.04 AS native-build
 ARG BUILD_JOBS=4
@@ -27,6 +27,8 @@ COPY CMakeLists.txt LICENSE.txt ./
 COPY cmake/ cmake/
 COPY alquimia/ alquimia/
 COPY drivers/ drivers/
+
+# CMake Required
 COPY unit_tests/ unit_tests/
 COPY benchmarks/ benchmarks/
 
@@ -76,11 +78,13 @@ COPY --from=server-build /opt/alquimia/build/install/lib/ build/install/lib/
 COPY --from=server-build /opt/alquimia/build/install/share/licenses/ licenses/
 COPY --from=server-build /opt/alquimia/build/mcp_alquimia/bin/ build/mcp_alquimia/bin/
 COPY --from=server-build /opt/alquimia/venv/ venv/
-# TODO: add more .in and .dat (dynamically)
-COPY --from=server-build /opt/alquimia/benchmarks/batch_chem/calcite-short-pflotran.in \
-     /opt/alquimia/benchmarks/batch_chem/calcite.dat \
-     /opt/alquimia/benchmarks/batch_chem/calcite-short-crunch.in \
-     /opt/alquimia/benchmarks/batch_chem/calcite.dbs benchmarks/batch_chem/
+
+# Necessary .cfg / .in / .dbs / .dat / .dbsx
+COPY --from=server-build /opt/alquimia/benchmarks/batch_chem/*.cfg \
+     /opt/alquimia/benchmarks/batch_chem/*.in \
+     /opt/alquimia/benchmarks/batch_chem/*.dbs \
+     /opt/alquimia/benchmarks/batch_chem/*.dat \
+     /opt/alquimia/benchmarks/batch_chem/*.dbsx benchmarks/batch_chem/
 COPY --from=server-build /opt/alquimia/models/ex8_nn/ex8_nn_batch1.json \
      /opt/alquimia/models/ex8_nn/ex8_nn_batch1.onnx models/ex8_nn/
 COPY LICENSE.txt ./
