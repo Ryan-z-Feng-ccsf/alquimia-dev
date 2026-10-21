@@ -98,8 +98,9 @@ cJSON* Success(cJSON* result)
 bool Send(FILE* response, cJSON* reply)
 {
   char* text = cJSON_PrintUnformatted(reply);
-  bool success = text && fprintf(response, "%s\n", text) >= 0 &&
-            fflush(response) == 0;
+  bool success = text &&
+                 fprintf(response, "%s\n", text) >= 0 &&
+                 fflush(response) == 0;
   cJSON_free(text);
   cJSON_Delete(reply);
   return success;
@@ -317,9 +318,14 @@ static cJSON* Setup(SimulationEngineSession* simulation_session, const cJSON* re
     return EngineError(simulation_session, "setup");
   simulation_session->is_onnx = AlquimiaCaseInsensitiveStringCompare(
       chem_engine, kAlquimiaStringOnnx);
-  simulation_session->interface.Setup(chem_input_file, true, &simulation_session->data.engine_state,
-                           &simulation_session->data.sizes, &simulation_session->data.functionality,
-                           &simulation_session->status);
+  simulation_session->interface.Setup(
+    chem_input_file,
+    true,
+    &simulation_session->data.engine_state,
+    &simulation_session->data.sizes,
+    &simulation_session->data.functionality,
+    &simulation_session->status
+  );
   if (simulation_session->status.error)
     return EngineError(simulation_session, "setup");
   simulation_session->setup_complete = true;
@@ -398,9 +404,14 @@ cJSON* Execute(SimulationEngineSession* simulation_session, const cJSON* request
     if (simulation_session->initialized)
       return Error(operation, -1, "Already initialized");
     
-    simulation_session->interface.ProcessCondition(&simulation_session->data.engine_state,
-        &simulation_session->condition, &simulation_session->data.properties, &simulation_session->data.state,
-        &simulation_session->data.aux_data, &simulation_session->status);
+    simulation_session->interface.ProcessCondition(
+      &simulation_session->data.engine_state,
+      &simulation_session->condition,
+      &simulation_session->data.properties,
+      &simulation_session->data.state,
+      &simulation_session->data.aux_data,
+      &simulation_session->status
+    );
     if (simulation_session->status.error)
       return EngineError(simulation_session, operation);
     simulation_session->initialized = true;
@@ -433,9 +444,15 @@ cJSON* Execute(SimulationEngineSession* simulation_session, const cJSON* request
     for (int step = 1; step <= max_steps; ++step)
     {
       simulation_session->status.converged = false;
-      simulation_session->interface.ReactionStepOperatorSplit(&simulation_session->data.engine_state,
-          dt, &simulation_session->data.properties, &simulation_session->data.state,
-          &simulation_session->data.aux_data, -999, &simulation_session->status);
+      simulation_session->interface.ReactionStepOperatorSplit(
+        &simulation_session->data.engine_state,
+        dt,
+        &simulation_session->data.properties,
+        &simulation_session->data.state,
+        &simulation_session->data.aux_data,
+        -999,
+        &simulation_session->status
+      );
       if (simulation_session->status.error)
         return EngineError(simulation_session, operation);
       // ONNX reports inference failures through status.error and has no solver
