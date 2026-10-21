@@ -45,11 +45,15 @@ async def test_stdio_native_lifecycle(repository_root, engine_process_executable
         initialized = await client.call_tool("initialize", {"session_id": session_id})
         assert not initialized.is_error, initialized
         assert initialized.structured_content["state"]["time"] == 0
-        for dt in (2.0, 3.0):
-            result = await client.call_tool("react", {"session_id": session_id, "time_config": {"dt": dt}})
+        # One looped request, then a single step
+        for time_config in ({"dt": 1.0, "max_steps": 2}, {"dt": 3.0, "max_steps": 1}):
+            result = await client.call_tool(
+                "react", {"session_id": session_id, "time_config": time_config})
             assert not result.is_error, result
+            assert result.structured_content["steps_executed"] == time_config["max_steps"]
         final = result.structured_content["state"]
-        assert (final["time"], final["max_steps"]) == (5, 2)
+        assert (final["time"], final["completed_steps"]) == (5, 3)
+        assert result.structured_content["current_time"] == 5
         polled = await client.call_tool("get_results", {"session_id": session_id})
         assert polled.structured_content["state"] == final
         assert (final["pH"] is None) == (case == "ex8-nn-batch1")
@@ -65,7 +69,7 @@ async def test_stdio_native_lifecycle(repository_root, engine_process_executable
     assert saved["final"] == final
     assert len(saved["history"]) == 3
     operations = [json.loads(row) for row in (run_dir / "operations.jsonl").read_text().splitlines()]
-    assert operations[-1] == {"operation": "react", "timestep": 3.0}
+    assert operations[-1] == {"operation": "react", "dt": 3.0, "max_steps": 1}
     leftover_dir = Path(leftover.structured_content["run_dir"])
     assert json.loads((leftover_dir / "simulation_results.json").read_text())["status"] == "closed"
     assert (run_dir / "engine_output.log").is_file()
