@@ -68,7 +68,8 @@ typedef struct {
   /* --- Simulation Physics & Tracking --- */
   double porosity;
   double time;
-  int max_steps;
+  // Reaction steps completed since initialization
+  int completed_steps;
 } SimulationEngineSession;
 
 /* Creates an error reply; the caller owns the returned JSON tree. */

@@ -38,6 +38,10 @@
 #include "alquimia/alquimia_constants.h"
 #include "alquimia/alquimia_util.h"
 
+// Upper bound on reaction steps per react request; mirrored by the Python
+// TimeConfigRequest so an oversized loop is refused before it starts.
+static const int kMaxReactSteps = 10000;
+
 /**
  * @brief Constructs a structured JSON error response object for engine failures.
  * @param[in] operation Name of the subsystem or lifecycle phase where failure occurred.
@@ -138,6 +142,29 @@ static bool JsonToNumber(const cJSON* object, const char* key, double* value)
 }
 
 /**
+ * @brief Extracts a strictly positive integer bounded by a maximum from a JSON object.
+ * @param[in] object The parent cJSON object to inspect.
+ * @param[in] key The case-sensitive property name to look up.
+ * @param[in] maximum Largest accepted value.
+ * @param[out] value Destination for the extracted integer.
+ * @return True if the key holds a whole number in [1, maximum]; otherwise false.
+ *
+ * cJSON stores every number as a double, so fractional, non-finite and out-of-range
+ * values are rejected before the cast. The output parameter `value` remains
+ * unmodified unless all validation checks pass.
+ */
+static bool JsonToPositiveInt(const cJSON* object, const char* key, int maximum, int* value)
+{
+  const cJSON* item = cJSON_GetObjectItemCaseSensitive(object, key);
+  if (!cJSON_IsNumber(item) || !isfinite(item->valuedouble) ||
+      item->valuedouble != floor(item->valuedouble) ||
+      item->valuedouble < 1 || item->valuedouble > maximum)
+    return false;
+  *value = (int)item->valuedouble;
+  return true;
+}
+
+/**
  * @brief Handles engine-level failures by marking the session failed and formatting an error response.
  * @param[in,out] simulation_session Active simulation session whose status holds the failure details.
  * @param[in] operation Subsystem or lifecycle phase where the engine failure occurred.
@@ -151,6 +178,29 @@ static cJSON* EngineError(SimulationEngineSession* simulation_session, const cha
 {
   simulation_session->failed = true;
   return Error(operation, simulation_session->status.error, simulation_session->status.message);
+}
+
+/**
+ * @brief Restores the fixed porosity and recomputes auxiliary output after a chemistry call.
+ * @param[in,out] simulation_session Active session whose state and auxiliary output are updated.
+ * @return True on success; false if the engine reported an error in simulation_session->status.
+ *
+ * Preserves the fixed-porosity convention of the supported batch benchmarks. Runs
+ * after every reaction step, as BatchChemDriver does, so a looped react request
+ * reproduces the same sequence of single-step requests.
+ */
+static bool RefreshAuxiliaryOutput(SimulationEngineSession* simulation_session)
+{
+  simulation_session->data.state.porosity = simulation_session->porosity;
+  simulation_session->interface.GetAuxiliaryOutput(
+    &simulation_session->data.engine_state,
+    &simulation_session->data.properties,
+    &simulation_session->data.state,
+    &simulation_session->data.aux_data,
+    &simulation_session->data.aux_output,
+    &simulation_session->status
+  );
+  return !simulation_session->status.error;
 }
 
 /**
@@ -172,9 +222,11 @@ static bool AlquimiaVectorDoubleToJson(cJSON* result, const char* key,
     if (!isfinite(vector->data[i]))
       return false;
   }
-  cJSON_AddItemToObject(result, key,
-      vector->size ? cJSON_CreateDoubleArray(vector->data, vector->size) :
-                     cJSON_CreateArray());
+  cJSON_AddItemToObject(
+    result, key,
+    vector->size ? cJSON_CreateDoubleArray(vector->data, vector->size)
+                 : cJSON_CreateArray()
+  );
   return true;
 }
 
@@ -206,7 +258,7 @@ static cJSON* Snapshot(SimulationEngineSession* simulation_session, const char* 
     return Error(operation, -1, "Engine returned non-finite output");
   }
   cJSON_AddNumberToObject(result, "time", simulation_session->time);
-  cJSON_AddNumberToObject(result, "max_steps", simulation_session->max_steps);
+  cJSON_AddNumberToObject(result, "completed_steps", simulation_session->completed_steps);
   if (!simulation_session->is_onnx)
     cJSON_AddNumberToObject(result, "pH", output->pH);
   else
@@ -356,33 +408,53 @@ cJSON* Execute(SimulationEngineSession* simulation_session, const cJSON* request
   else if (strcmp(operation, "react") == 0) 
   {
     double dt;
+    int max_steps;
     if (!simulation_session->initialized)
       return Error(operation, -1, "Call initialize first");
     
-    // Guard
-    if (!JsonToNumber(request, "timestep", &dt) || dt <= 0 ||
-        !isfinite(simulation_session->time + dt) || simulation_session->time + dt == simulation_session->time ||
-        simulation_session->max_steps == INT_MAX) 
+    // Reject every invalid value before the loop, leaving the session usable
+    if (!JsonToNumber(request, "dt", &dt) || dt <= 0)
+      return Error(operation, -1, "dt must be a finite, positive number of seconds");
+    if (!JsonToPositiveInt(request, "max_steps", kMaxReactSteps, &max_steps))
     {
-      return Error(operation, -1, "dt_seconds must be finite, positive, and react time");
+      char message[128];
+      snprintf(message, sizeof(message), "max_steps must be an integer from 1 to %d",
+               kMaxReactSteps);
+      return Error(operation, -1, message);
     }
-
-    // Do the chemistry step
-    simulation_session->status.converged = false;
-    simulation_session->interface.ReactionStepOperatorSplit(&simulation_session->data.engine_state,
-        dt, &simulation_session->data.properties, &simulation_session->data.state,
-        &simulation_session->data.aux_data, -999, &simulation_session->status);
-    if (simulation_session->status.error)
-      return EngineError(simulation_session, operation);
-    // ONNX reports inference failures through status.error and has no solver
-    // convergence flag. Chemistry solvers must still explicitly converge.
-    if (!simulation_session->is_onnx && !simulation_session->status.converged)
+    // A dt too small to change time would loop without advancing it
+    if (simulation_session->time + dt == simulation_session->time ||
+        !isfinite(simulation_session->time + dt * max_steps))
+      return Error(operation, -1, "dt is too small or too large to advance the simulation time");
+    if (max_steps > INT_MAX - simulation_session->completed_steps)
+      return Error(operation, -1, "Session step count would overflow");
+    
+    // Reaction loop
+    for (int step = 1; step <= max_steps; ++step)
     {
-      simulation_session->failed = true;
-      return Error(operation, -1, "Reaction step did not converge; simulation_session cannot be continued");
+      simulation_session->status.converged = false;
+      simulation_session->interface.ReactionStepOperatorSplit(&simulation_session->data.engine_state,
+          dt, &simulation_session->data.properties, &simulation_session->data.state,
+          &simulation_session->data.aux_data, -999, &simulation_session->status);
+      if (simulation_session->status.error)
+        return EngineError(simulation_session, operation);
+      // ONNX reports inference failures through status.error and has no solver
+      // convergence flag. Chemistry solvers must still explicitly converge.
+      if (!simulation_session->is_onnx && !simulation_session->status.converged)
+      {
+        char message[160];
+        simulation_session->failed = true;
+        snprintf(message, sizeof(message),
+                 "Reaction step %d of %d did not converge; simulation_session cannot be continued",
+                 step, max_steps);
+        return Error(operation, -1, message);
+      }
+      simulation_session->time += dt;
+      ++simulation_session->completed_steps;
+      // The final step's refresh is shared with initialize below
+      if (step < max_steps && !RefreshAuxiliaryOutput(simulation_session))
+        return EngineError(simulation_session, operation);
     }
-    simulation_session->time += dt;
-    ++simulation_session->max_steps;
   }
   else if (strcmp(operation, "get_results") == 0) 
   {
@@ -396,12 +468,7 @@ cJSON* Execute(SimulationEngineSession* simulation_session, const cJSON* request
   }
 
   // Fetch auxiliary data
-  // Preserve the fixed-porosity convention of the supported batch benchmarks.
-  simulation_session->data.state.porosity = simulation_session->porosity;
-  simulation_session->interface.GetAuxiliaryOutput(&simulation_session->data.engine_state,
-      &simulation_session->data.properties, &simulation_session->data.state, &simulation_session->data.aux_data,
-      &simulation_session->data.aux_output, &simulation_session->status);
-  if (simulation_session->status.error) 
+  if (!RefreshAuxiliaryOutput(simulation_session))
     return EngineError(simulation_session, operation);
   return Snapshot(simulation_session, operation);
 }
