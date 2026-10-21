@@ -55,13 +55,16 @@ async def smoke(image: str, docker_host: str | None, output: Path) -> dict:
             session_id = setup.structured_content["session_id"]
             initialized = await client.call_tool("initialize", {"session_id": session_id})
             assert not initialized.is_error, initialized
-            for dt in (2.0, 3.0):
-                # max_steps covers the two reacts even if the cfg allows fewer.
+            # A looped request inside the engine, then a single step
+            for time_config in ({"dt": 1.0, "max_steps": 2}, {"dt": 3.0, "max_steps": 1}):
                 result = await client.call_tool(
-                    "react", {"session_id": session_id, "time_config": {"dt": dt, "max_steps": 2}})
+                    "react", {"session_id": session_id, "time_config": time_config})
                 assert not result.is_error, result
+                assert result.structured_content["status"] == "success"
+                assert result.structured_content["steps_executed"] == time_config["max_steps"]
             final = result.structured_content["state"]
-            assert (final["time"], final["max_steps"]) == (5, 2)
+            assert (final["time"], final["completed_steps"]) == (5, 3)
+            assert result.structured_content["current_time"] == 5
             polled = await client.call_tool("get_results", {"session_id": session_id})
             assert not polled.is_error, polled
             assert polled.structured_content["state"] == final
