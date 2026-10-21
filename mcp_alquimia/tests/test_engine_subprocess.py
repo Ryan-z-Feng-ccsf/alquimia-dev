@@ -74,13 +74,33 @@ def test_persistent_reactions_and_initialization_only(
         process.request("setup", **setup)
         initial = process.request("initialize")
         assert initial == initial_only["final"]
-        first = process.request("react", timestep=2)
-        final = process.request("react", timestep=3)
-        assert (initial["time"], first["time"], final["time"], final["max_steps"]) == (0, 2, 5, 2)
+        first = process.request("react", dt=2, max_steps=1)
+        final = process.request("react", dt=3, max_steps=1)
+        assert (initial["time"], first["time"], final["time"], final["completed_steps"]) == (0, 2, 5, 2)
         assert final == process.request("get_results")
         if engine_case.name == "pflotran-calcite":
             assert final["total_mobile"][2] > initial["total_mobile"][2]
     assert process.process.returncode == 0
+
+
+def test_looped_react_matches_single_steps(engine_process_executable, staged_engine_case):
+    """One request with max_steps=n reproduces n single-step requests exactly."""
+    run_dir, setup = staged_engine_case
+    # Each engine process needs its own log, so the second run uses a copied directory
+    single_step_dir = run_dir.with_name("single_steps")
+    shutil.copytree(run_dir, single_step_dir)
+    states = []
+    for directory, requests in ((run_dir, [{"dt": 2.5, "max_steps": 3}]),
+                                (single_step_dir, [{"dt": 2.5, "max_steps": 1}] * 3)):
+        with AlquimiaEngineProcess(engine_process_executable, directory) as process:
+            process.request("setup", **setup)
+            process.request("initialize")
+            # directory = single_step_dir, requests * 3
+            for parameters in requests:
+                state = process.request("react", **parameters)
+            states.append(state)
+    assert states[0] == states[1]
+    assert (states[0]["time"], states[0]["completed_steps"]) == (7.5, 3)
 
 
 def test_unknown_condition_shuts_down(engine_process_executable, staged_engine_case):
@@ -97,7 +117,7 @@ def test_unknown_condition_shuts_down(engine_process_executable, staged_engine_c
 
 @pytest.mark.parametrize("operation, arguments, message", [
     pytest.param("setup", {"engine": "missing_engine"}, "missing_engine", id="unknown-engine"),
-    pytest.param("react", {"timestep": 5}, "Call setup first", id="react-before-setup"),
+    pytest.param("react", {"dt": 5, "max_steps": 1}, "Call setup first", id="react-before-setup"),
 ])
 def test_protocol_errors_shutdown(
     repository_root,
@@ -120,14 +140,32 @@ def test_protocol_errors_shutdown(
         assert process.process.poll() == 0
 
 
-def test_negative_timestep_shuts_down(engine_process_executable, staged_engine_case):
-    """Reject invalid reaction timesteps and retain the native diagnosis."""
+@pytest.mark.parametrize("parameters, message", [
+    pytest.param({"dt": -5, "max_steps": 1}, "dt must be", id="negative-dt"),
+    pytest.param({"dt": "5", "max_steps": 1}, "dt must be", id="string-dt"),
+    pytest.param({"max_steps": 1}, "dt must be", id="missing-dt"),
+    pytest.param({"timestep": 5, "max_steps": 1}, "dt must be", id="retired-timestep"),
+    pytest.param({"dt": 1e308, "max_steps": 2}, "too large", id="overflowing-time"),
+    pytest.param({"dt": 5}, "max_steps must be", id="missing-max-steps"),
+    pytest.param({"dt": 5, "max_steps": 0}, "max_steps must be", id="zero-max-steps"),
+    pytest.param({"dt": 5, "max_steps": 1.5}, "max_steps must be", id="fractional-max-steps"),
+    pytest.param({"dt": 5, "max_steps": "2"}, "max_steps must be", id="string-max-steps"),
+    pytest.param({"dt": 5, "max_steps": True}, "max_steps must be", id="boolean-max-steps"),
+    pytest.param({"dt": 5, "max_steps": 10001}, "max_steps must be", id="too-many-steps"),
+])
+def test_invalid_react_parameters_shut_down(
+    engine_process_executable,
+    staged_engine_case,
+    parameters,
+    message
+    ):
+    """Reject invalid loop parameters before any step and retain the native diagnosis."""
     run_dir, setup = staged_engine_case
     with AlquimiaEngineProcess(engine_process_executable, run_dir) as process:
         process.request("setup", **setup)
         process.request("initialize")
-        with pytest.raises(EngineCommandError, match="dt_seconds") as caught:
-            process.request("react", timestep=-5)
+        with pytest.raises(EngineCommandError, match=message) as caught:
+            process.request("react", **parameters)
         assert str(run_dir / "engine_output.log") in str(caught.value)
         assert process.process.poll() == 0
 
@@ -155,6 +193,6 @@ def test_onnx_inference_failure_is_reported(repository_root, engine_process_exec
         process.request("setup", **setup)
         process.request("initialize")
         with pytest.raises(EngineCommandError, match="react failed") as caught:
-            process.request("react", timestep=1)
+            process.request("react", dt=1, max_steps=1)
         assert "did not converge" not in str(caught.value)
         assert process.process.poll() == 0
