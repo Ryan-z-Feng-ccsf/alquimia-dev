@@ -49,9 +49,9 @@ class FakeEngineProcess:
         if operation == "react":
             previous = self.time
             time.sleep(0.01)
-            self.time = previous + parameters["timestep"]
-            self.steps += 1
-        return {"time": self.time, "max_steps": self.steps, "total_mobile": [1.0]}
+            self.time = previous + parameters["dt"] * parameters["max_steps"]
+            self.steps += parameters["max_steps"]
+        return {"time": self.time, "completed_steps": self.steps, "total_mobile": [1.0]}
 
     def close(self):
         """Record that this process was reaped."""
@@ -121,11 +121,11 @@ async def test_sessions_lifecycle_isolation_and_disconnect(manager):
         # Simultaneous MCP calls must not interleave writes to the same process.
         async with anyio.create_task_group() as group:
             async def react(dt):
-                await call(client, "react", session_id=a, time_config={"dt": dt})
+                await call(client, "react", session_id=a, time_config={"dt": dt, "max_steps": 1})
             group.start_soon(react, 2.0)
             group.start_soon(react, 3.0)
         state = (await call(client, "get_results", session_id=a))["state"]
-        assert (state["time"], state["max_steps"]) == (5, 2)
+        assert (state["time"], state["completed_steps"]) == (5, 2)
         assert (await call(client, "get_results", session_id=b))["state"]["time"] == 0
         assert (await call(client, "close", session_id=a))["closed"] is True
         assert (await call(client, "close", session_id=a))["closed"] is False
@@ -152,7 +152,8 @@ async def test_invalid_arguments_preserve_session(manager):
         session_id = setup["session_id"]
         await call(client, "initialize", session_id=session_id)
         for time_config in ({"dt": -1}, {"dt": 0}, {"dt": True}, {"dt": "5"}, {"max_steps": 0},
-                            {"max_steps": 1.5}, {"max_steps": True}, {"timestep": 5}):
+                            {"max_steps": 1.5}, {"max_steps": True}, {"max_steps": 10001},
+                            {"timestep": 5}):
             result = await client.call_tool(
                 "react", {"session_id": session_id, "time_config": time_config})
             assert result.is_error
@@ -311,28 +312,60 @@ async def test_undefined_default_condition_requires_a_request(manager):
 
 @pytest.mark.anyio
 async def test_time_config_overrides_dt_and_max_steps(manager):
-    """react's time_config overrides the cfg dt and max_steps and persists in the session."""
+    """One react runs max_steps steps of dt in one engine request; overrides persist."""
     async with Client(create_server(manager)) as client:
         session = await call(client, "setup", case="calcite-short-pc-pflotran")
         defaults_time_config = session["simulation"]
         session_id = session["session_id"]
         await call(client, "initialize", session_id=session_id)
-        state = (await call(client, "react", session_id=session_id))["state"]
-        assert state["time"] == defaults_time_config["dt"]
-        await call(client, "react", session_id=session_id,
-                   time_config={"dt": 7.5, "max_steps": 3})
-        # dt persists for the next call
-        state = (await call(client, "react", session_id=session_id))["state"]
-        assert state["time"] == defaults_time_config["dt"] + 15
-        refused = await client.call_tool("react", {"session_id": session_id})
-        assert refused.is_error and "max_steps" in refused.content[0].text
-        # A rejected step does not change the session's dt
-        refused = await client.call_tool(
-            "react", {"session_id": session_id, "time_config": {"dt": 1.0}})
-        assert refused.is_error
-        await call(client, "react", session_id=session_id, time_config={"max_steps": 4})
-        state = (await call(client, "get_results", session_id=session_id))["state"]
-        assert state["time"] == defaults_time_config["dt"] + 22.5
+        default_time = defaults_time_config["dt"] * defaults_time_config["max_steps"]
+        reacted = await call(client, "react", session_id=session_id)
+        assert reacted == {
+            "session_id": session_id,
+            "status": "success",
+            "time_step": defaults_time_config["dt"],
+            "steps_executed": defaults_time_config["max_steps"],
+            "current_time": default_time,
+            "state": reacted["state"],
+        }
+        reacted = await call(client, "react", session_id=session_id,
+                             time_config={"dt": 7.5, "max_steps": 3})
+        assert (reacted["time_step"], reacted["steps_executed"]) == (7.5, 3)
+        # Both overrides persist for the next call
+        reacted = await call(client, "react", session_id=session_id)
+        # 7.5 * 3 * 2 = 45
+        assert reacted["current_time"] == default_time + 45
+        reacted = await call(client, "react", session_id=session_id, time_config={"max_steps": 1})
+        # 45 + 7.5
+        assert (reacted["time_step"], reacted["current_time"]) == (7.5, default_time + 52.5)
+        # Each react call is one engine request and one history entry
+        process = FakeEngineProcess.instances[0]
+        # 3 + 3 + 1
+        assert process.steps == defaults_time_config["max_steps"] + 7
+        operations = (Path(session["run_dir"]) / "operations.jsonl").read_text().splitlines()
+        assert json.loads(operations[-1]) == {"operation": "react", "dt": 7.5, "max_steps": 1}
+        # 1 initialize + 4 react
+        assert len(operations) == 5
+
+
+@pytest.mark.anyio
+async def test_unknown_tool_arguments_are_rejected(manager):
+    """Retired or misspelled arguments fail instead of running with defaults."""
+    async with Client(create_server(manager)) as client:
+        tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+        assert all(tool.input_schema["additionalProperties"] is False for tool in tools.values())
+        setup = await call(client, "setup", case="calcite-short-pc-pflotran")
+        session_id = setup["session_id"]
+        await call(client, "initialize", session_id=session_id)
+        for extra in ({"dt": 5}, {"timestep": 5}, {"max_steps": 2}):
+            result = await client.call_tool("react", {"session_id": session_id, **extra})
+            assert result.is_error
+            assert next(iter(extra)) in result.content[0].text
+        result = await client.call_tool("setup", {"case": "calcite-short-pc-pflotran", "dt": 1})
+        assert result.is_error
+        assert FakeEngineProcess.instances[0].steps == 0
+        # Only 1 engine instance was setup
+        assert len(FakeEngineProcess.instances) == 1
 
 
 @pytest.mark.anyio
