@@ -74,8 +74,9 @@ def run_case(
         with AlquimiaEngineProcess(executable, run_dir, timeout) as engine_process:
             metadata = engine_process.request("setup", **setup)
             history = [engine_process.request("initialize")]
+            # One step per request keeps every step in the history
             for _ in range(max_steps):
-                history.append(engine_process.request("react", timestep=dt))
+                history.append(engine_process.request("react", dt=dt, max_steps=1))
             final = engine_process.request("get_results")
         result = {
             "case": request["case"],
