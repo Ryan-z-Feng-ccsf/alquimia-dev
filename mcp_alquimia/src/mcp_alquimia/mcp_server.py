@@ -10,7 +10,7 @@ import anyio
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
-from pydantic import ValidationError
+from pydantic import ConfigDict, ValidationError
 
 from .session_manager import SessionManager, list_cases as describe_cases
 from .setup_request import SetupRequest
@@ -25,6 +25,30 @@ def describe_validation_error(error: ValidationError) -> str:
         for item in error.errors()
     )
     return f"Invalid {error.title}: {details}"
+
+
+def forbid_unknown_arguments(server: MCPServer) -> None:
+    """Make every registered tool reject arguments outside its signature.
+
+    The SDK's argument models silently drop unknown keys, so a misspelled or
+    retired argument (e.g. a top-level dt) would run with defaults. A **kwargs
+    parameter cannot catch them either: the SDK turns it into a required field.
+    """
+    for tool in server._tool_manager.list_tools():
+        arguments = tool.fn_metadata.arg_model
+        
+        # Create a strict subclass of the original arguments model.
+        # Copy the existing config but force `extra="forbid"` to reject unknown parameters.
+        strict_arguments = type(arguments.__name__, (arguments,), {
+            "model_config": ConfigDict(**arguments.model_config, extra="forbid")})
+        
+        # Update the internal validation model.
+        # This ensures the Python server throws an error if extra arguments are received.
+        tool.fn_metadata.arg_model = strict_arguments
+        
+        # Update the external JSON schema exposed to the LLM.
+        # This sets `additionalProperties: false` so the LLM knows it cannot hallucinate arguments.
+        tool.parameters = strict_arguments.model_json_schema(by_alias=True)
 
 
 def create_server(manager: SessionManager) -> MCPServer:
@@ -51,8 +75,9 @@ def create_server(manager: SessionManager) -> MCPServer:
         lifespan=lifespan,
         instructions=(
             "Call list_cases, then setup for a case, optionally with a request object overriding its settings. Retain its session_id. "
-            "Call initialize once, then react for each step, optionally with a time_config "
-            "object overriding dt (seconds) and max_steps for the rest of the session. Call get_results "
+            "Call initialize once, then react: each call runs max_steps reaction steps of dt "
+            "seconds in the engine, defaulting to the case's cfg values; an optional time_config "
+            "object overrides dt and max_steps for that and later calls. Call get_results "
             "to inspect state, and close when finished. Each session has an isolated "
             "native process and artifact directory. Failed native calls end that session; "
             "create a new one. Chemistry constraints come from the case input; physical settings default to the benchmark and may be overridden in setup. "
@@ -110,14 +135,16 @@ def create_server(manager: SessionManager) -> MCPServer:
         session_id: str,
         time_config: TimeConfigRequest | None = None
     ) -> dict[str, Any]:
-        """Perform one reaction and return the new state; repeated calls keep state.
+        """Run max_steps reaction steps of dt seconds; repeated calls continue the state.
+
+        Returns status, time_step (dt), steps_executed, current_time (s) and the final state.
 
         Args:
             session_id: ID returned by setup, after initialize has succeeded.
-            time_config: Optional overrides of the session's dt (seconds) and max_steps,
-                which start at the cfg values shown by list_cases. Set values persist
-                for later react calls. ONNX only uses dt for recorded time; it does
-                not change model inference.
+            time_config: Optional overrides of the session's dt (seconds per step) and
+                max_steps (steps per call), which start at the cfg values shown by
+                list_cases. Set values persist for later react calls. ONNX only uses
+                dt for recorded time; it does not change model inference.
         """
         return await invoke(manager.react, session_id, time_config)
 
@@ -127,16 +154,17 @@ def create_server(manager: SessionManager) -> MCPServer:
         return await invoke(manager.get_results, session_id)
 
     @server.tool(annotations=ToolAnnotations(
-            readOnlyHint=False,
-            destructiveHint=False,
+            readOnlyHint=False, # With manual confirmation
+            destructiveHint=False,  # Changes state, but does not destroy data
             idempotentHint=True,
-            openWorldHint=False
+            openWorldHint=False # Confined to the local sandbox.
         )
     )
     async def close(session_id: str) -> dict[str, Any]:
         """Close and reap a session, retaining artifacts; repeated calls are harmless."""
         return await invoke(manager.close, session_id)
 
+    forbid_unknown_arguments(server)
     return server
 
 
