@@ -4,18 +4,25 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# Mirrors kMaxReactSteps in engine_process/alquimia_engine_process_helpers.c.
+MAX_REACT_STEPS = 10000
+
 Timestep = Annotated[
-    float, Field(gt=0, allow_inf_nan=False, description="Seconds per react call.")]
+    float, Field(gt=0, allow_inf_nan=False, description="Seconds per reaction step.")]
 MaxSteps = Annotated[
-    int, Field(ge=1, description="Maximum number of react calls allowed in the session.")]
+    int,
+    Field(ge=1, le=MAX_REACT_STEPS, allow_inf_nan=False,
+          description="Number of reaction steps one react call runs in the engine."),
+]
 
 
 class TimeConfigRequest(BaseModel):
     """Overrides of the session's dt and max_steps; omitted fields keep current values.
 
-    Values start from the case's cfg (`timestep` and `max_steps`) and, once set,
-    persist for later react calls in the same session. Unknown fields, booleans or
-    strings in place of numbers, and non-finite or out-of-range values are rejected.
+    One react call runs max_steps reaction steps of dt seconds each inside the
+    engine. Values start from the case's cfg (`timestep` and `max_steps`) and, once
+    set, persist for later react calls in the same session. Unknown fields, booleans
+    or strings in place of numbers, and non-finite or out-of-range values are rejected.
     """
 
     # Reject unknown fields and disable automatic type conversion
