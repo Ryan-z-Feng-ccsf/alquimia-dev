@@ -22,3 +22,4 @@ models/onnx_data.csv
 models/onnx_model_input_feature.txt
 *lsurf*
 LSURF*
+benchmarks/batch_chem/*.py
