@@ -173,8 +173,9 @@ class AlquimiaEngineProcess:
         Args:
             operation (str): Native operation: setup, initialize, react,
                 get_results, or close. Prefer close() for complete cleanup.
-            **parameters: JSON-compatible operation arguments. For react,
-                timestep is the positive reaction timestep in seconds.
+            **parameters: JSON-compatible operation arguments. For react, dt is
+                the positive step duration in seconds and max_steps the number of
+                steps (1 to 10000) the engine runs before replying.
 
         Returns:
             object: Decoded result, such as setup metadata or a state snapshot.
