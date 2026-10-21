@@ -165,22 +165,32 @@ class SessionManager:
         session_id: str,
         time_config: TimeConfigRequest | None = None
     ) -> dict[str, Any]:
-        """Perform one reaction and return the updated state.
+        """Run max_steps reaction steps of dt seconds in one engine request.
 
         Args:
             session_id: Initialized session.
             time_config: Optional validated overrides of the session's dt (seconds)
-                and max_steps. Set values persist for later reactions once this
-                step is accepted; omitted fields keep the session's current values
-                (initially the cfg's).
+                and max_steps (steps per call). Set values persist for later calls
+                once the engine completes them; omitted fields keep the session's
+                current values (initially the cfg's).
 
-        Raises:
-            ValueError: The session already performed its max_steps reactions.
+        Returns:
+            status "success", time_step (dt in seconds), steps_executed,
+            current_time (seconds since initialization), and the final state.
 
         ONNX ignores dt during inference; its recorded time still advances.
         """
-        return self._request(
+        result = self._request(
             session_id, "react", time_config=time_config or TimeConfigRequest())
+        state = result["state"]
+        return {
+            "session_id": session_id,
+            "status": "success",
+            "time_step": result["dt"],
+            "steps_executed": result["max_steps"],
+            "current_time": state["time"],
+            "state": state,
+        }
 
     def get_results(self, session_id: str) -> dict[str, Any]:
         """Return the latest initialized state without advancing the engine."""
@@ -197,19 +207,13 @@ class SessionManager:
             if operation != "initialize" and not session.history:
                 raise ValueError("Call initialize before react or get_results")
             if operation == "react":
-                react_time_config = {
+                # The engine runs max_steps steps of dt in one request
+                parameters = {
                     "dt": session.dt,
                     "max_steps": session.max_steps,
                     **parameters.pop("time_config").overrides(),
                 }
-                # Initialized result was added in the history
-                if len(session.history) - 1 >= react_time_config["max_steps"]:
-                    raise ValueError(
-                        f"Session reached its max_steps ({react_time_config['max_steps']}); "
-                        "close it or pass a larger time_config.max_steps to react")
-                session.dt, session.max_steps = react_time_config["dt"], react_time_config["max_steps"]
-                parameters["timestep"] = session.dt
-                
+
             try:
                 result = session.process.request(operation, **parameters)
                 if operation != "get_results":
@@ -221,11 +225,14 @@ class SessionManager:
                             allow_nan=False) + "\n"
                         )
                     self._save(session_id, session, "initialized")
+                if operation == "react":
+                    # Overrides persist only once the engine has completed them
+                    session.dt, session.max_steps = parameters["dt"], parameters["max_steps"]
             except Exception as error:
                 self._sessions.pop(session_id)
                 self._record_failure(session.run_dir, operation, error, session.process)
                 raise
-            return {"session_id": session_id, "state": result}
+            return {"session_id": session_id, "state": result, **parameters}
 
     def close(self, session_id: str) -> dict[str, Any]:
         """Reap one process and finalize artifacts; repeated close is harmless.
