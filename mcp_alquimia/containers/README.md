@@ -29,7 +29,7 @@ python3 mcp_alquimia/containers/run_container.py
 
 The launcher verifies that the daemon is rootless, uses an existing image without pulling, disables container networking, and mounts only the results directory at `/runs`. It uses container UID 0, which maps to your ordinary host UID under rootless Docker; this keeps bind-mounted artifacts accessible to you. The image itself defaults to an unprivileged container user for other launch methods. Do not add `-t`: MCP requires unmodified stdin/stdout.
 
-Results persist under `build/mcp_alquimia/runs/<session_id>/`. Override the location with `--run-root`; use `--docker-host` or `DOCKER_HOST` for another rootless endpoint. Each MCP connection starts one container, and each simulation session starts an engine process inside it. Normal client disconnect closes all sessions and removes the container while preserving results.
+Results persist under `~/.alquimia/runs/<session_id>/`. Override the location with `--run-root`; use `--docker-host` or `DOCKER_HOST` for another rootless endpoint. Each MCP connection starts one container, and each simulation session starts an engine process inside it. Normal client disconnect closes all sessions and removes the container while preserving results.
 
 Validate both the full test suite and the production image:
 
@@ -39,6 +39,20 @@ mcp_alquimia/.venv/bin/python mcp_alquimia/tests/smoke_container.py
 ```
 
 The second command requires the host's MCP test environment. It exercises all three engines through actual container stdio, verifies host-visible results and disconnect cleanup, and saves a report under `build/mcp_alquimia/test_reports/`.
+
+## Rootful Docker (system daemon)
+
+Users in the host's `docker` group can run the published image on the system daemon at `/var/run/docker.sock` with [run_container_rootful.py](run_container_rootful.py). It is standalone (host Python 3 only), so copy it anywhere. The image is private: the publisher must grant your GitHub account read access to the `alquimia-mcp` package, and you log in once with a personal access token (classic) that has the `read:packages` scope:
+
+```bash
+docker login ghcr.io -u <github-username>
+docker pull ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0
+# Use the absolute path to your copy of the launcher; a missing file makes
+# the client report the connection as closed.
+claude mcp add alquimia -- python3 "$PWD/run_container_rootful.py"
+```
+
+A rootful daemon does not remap UIDs, so the launcher runs the container as your own UID:GID (not container root), drops all capabilities, and forbids privilege escalation; results stay owned by you under `~/.alquimia/runs/<session_id>/` (override with `--run-root`). Do not launch it with `sudo`. Like the rootless launcher, it never pulls: run `docker pull` again to update, and pass `--image` for another tag.
 
 To transfer a built image without publishing it:
 
