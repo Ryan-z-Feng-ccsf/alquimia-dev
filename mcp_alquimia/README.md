@@ -6,8 +6,8 @@ The server discovers its cases from the `benchmarks/batch_chem/*.cfg` files, cov
 
 The `mcp-alquimia` command starts the MCP server. Use `list_cases`, then `setup(case)` to obtain a session ID, `initialize(session_id)`, `react(session_id)`, which runs `max_steps` steps of `dt` seconds in one engine request (an optional `time_config` overrides both, starting from the cfg values), `get_results(session_id)`, and `close(session_id)`. The server closes remaining sessions on disconnect.
 
-Inputs, logs, operation records, results, and failure diagnostics are retained under `build/mcp_alquimia/runs/<session_id>/` by default. Native failures end the affected session; start a new session to retry. Invalid arguments and lifecycle-order errors leave the session usable.
+Inputs, logs, operation records, results, and failure diagnostics are retained under `~/.alquimia/runs/<session_id>/` by default (override with `--run-root`). Native failures end the affected session; start a new session to retry. Invalid arguments and lifecycle-order errors leave the session usable.
 
 The ONNX adapter ignores timestep during inference; `dt` controls recorded session time. ONNX returns `null` for pH because its adapter provides no auxiliary pH output.
 
-Any case can also be run without MCP through `python -m mcp_alquimia.run_batch_chem_case --case <name> --run-dir <new dir>` (optionally `--request '<json>'` for setup overrides, and `--max-steps`/`--dt`). [Rootless container packaging](containers/README.md) builds a self-contained Linux x86-64 image and runs without host sudo when rootless Docker prerequisites are available.
+Any case can also be run without MCP through `python -m mcp_alquimia.run_batch_chem_case --case <name> --run-dir <new dir>` (optionally `--request '<json>'` for setup overrides, and `--max-steps`/`--dt`). [Container packaging](containers/README.md) builds a self-contained Linux x86-64 image and runs without host sudo when rootless Docker prerequisites are available; a second launcher runs the published image on a rootful system daemon.
