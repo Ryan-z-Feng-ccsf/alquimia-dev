@@ -54,6 +54,28 @@ claude mcp add alquimia -- python3 "$PWD/run_container_rootful.py"
 
 A rootful daemon does not remap UIDs, so the launcher runs the container as your own UID:GID (not container root), drops all capabilities, and forbids privilege escalation; results stay owned by you under `~/.alquimia/runs/<session_id>/` (override with `--run-root`). Do not launch it with `sudo`. Like the rootless launcher, it never pulls: run `docker pull` again to update, and pass `--image` for another tag.
 
+### Setup without the repository
+
+The image contains the engines, server, and benchmark inputs; the launcher only assembles a `docker run` command. Without a checkout, register that command directly, after the `docker login` and `docker pull` above. The shell expands `$(id -u)`, `$(id -g)`, and `$HOME` once, so the client config stores literal values; the flags match the rootful launcher, minus its diagnostics (a missing image reports Docker's "No such image").
+
+```bash
+mkdir -p ~/.alquimia/runs   # A bind mount requires an existing source directory.
+alquimia_mcp=(docker run --rm -i --init --pull=never --network=none
+  --user "$(id -u):$(id -g)" --cap-drop=ALL --security-opt=no-new-privileges
+  --env=HOME=/tmp --mount "type=bind,src=$HOME/.alquimia/runs,dst=/runs"
+  ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0)
+
+# Claude Code: user scope makes the server available in every directory.
+claude mcp add -s user alquimia -- "${alquimia_mcp[@]}"
+claude mcp list
+
+# Codex CLI: writes [mcp_servers.alquimia] to ~/.codex/config.toml.
+codex mcp add alquimia -- "${alquimia_mcp[@]}"
+codex mcp list
+```
+
+Codex stops waiting for an MCP tool after 60 seconds by default. For long `react` calls, add `tool_timeout_sec = 600` under `[mcp_servers.alquimia]` in `~/.codex/config.toml`. In either client, start with a request such as "list the alquimia cases, then run calcite-short-pc-pflotran".
+
 To transfer a built image without publishing it:
 
 ```bash
