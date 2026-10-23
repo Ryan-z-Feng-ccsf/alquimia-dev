@@ -58,11 +58,24 @@ A rootful daemon does not remap UIDs, so the launcher runs the container as your
 
 The image contains the engines, server, and benchmark inputs; the launcher only assembles a `docker run` command. Without a checkout, register that command directly, after the `docker login` and `docker pull` above. The shell expands `$(id -u)`, `$(id -g)`, and `$HOME` once, so the client config stores literal values; the flags match the rootful launcher, minus its diagnostics (a missing image reports Docker's "No such image").
 
+The container user depends on the daemon. A rootful daemon needs your UID:GID, because container UIDs are host UIDs. A rootless daemon needs container UID 0, because only UID 0 maps to your host user; any other UID becomes a subordinate UID that cannot write your results directory. The rootless variant also stores the daemon socket in the command, since MCP clients do not reliably pass `DOCKER_HOST` to servers.
+
 ```bash
 mkdir -p ~/.alquimia/runs   # A bind mount requires an existing source directory.
-alquimia_mcp=(docker run --rm -i --init --pull=never --network=none
-  --user "$(id -u):$(id -g)" --cap-drop=ALL --security-opt=no-new-privileges
-  --env=HOME=/tmp --mount "type=bind,src=$HOME/.alquimia/runs,dst=/runs"
+
+if docker info --format '{{json .SecurityOptions}}' | grep -q rootless; then
+  # Rootless daemon: record its socket, defaulting to the standard location.
+  alquimia_docker=(docker --host "${DOCKER_HOST:-unix://$XDG_RUNTIME_DIR/docker.sock}")
+  alquimia_user=(--user=0:0)
+else
+  # Rootful system daemon (docker group).
+  alquimia_docker=(docker)
+  alquimia_user=(--user "$(id -u):$(id -g)" --env=HOME=/tmp)
+fi
+
+alquimia_mcp=("${alquimia_docker[@]}" run --rm -i --init --pull=never --network=none
+  "${alquimia_user[@]}" --cap-drop=ALL --security-opt=no-new-privileges
+  --mount "type=bind,src=$HOME/.alquimia/runs,dst=/runs"
   ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0)
 
 # Claude Code: user scope makes the server available in every directory.
@@ -74,7 +87,21 @@ codex mcp add alquimia -- "${alquimia_mcp[@]}"
 codex mcp list
 ```
 
+The snippet picks the variant from the daemon that `docker` currently reaches; the image must have been pulled into that same daemon. A rootless daemon started by `start_rootless_docker.sh` must stay running while clients use the server.
+
 Codex stops waiting for an MCP tool after 60 seconds by default. For long `react` calls, add `tool_timeout_sec = 600` under `[mcp_servers.alquimia]` in `~/.codex/config.toml`. In either client, start with a request such as "list the alquimia cases, then run calcite-short-pc-pflotran".
+
+The server marks `list_cases` and `get_results` read-only and the session tools as state-changing, so clients ask before `setup`, `initialize`, `react`, and `close`, and Claude Code's auto mode may refuse them where no project context explains the server. To approve this server's tools once for every directory:
+
+- Claude Code: add `"mcp__alquimia__*"` to `permissions.allow` in `~/.claude/settings.json` (merge it into existing settings), then restart Claude Code. A `.claude/settings.local.json` with the same rule limits approval to one directory.
+
+  ```json
+  { "permissions": { "allow": ["mcp__alquimia__*"] } }
+  ```
+
+- Codex CLI: add `default_tools_approval_mode = "approve"` under `[mcp_servers.alquimia]` in `~/.codex/config.toml`; `[mcp_servers.alquimia.tools.<tool>]` with `approval_mode` sets one tool.
+
+The rule covers only this server, which has no network access and writes only to its results directory.
 
 To transfer a built image without publishing it:
 
