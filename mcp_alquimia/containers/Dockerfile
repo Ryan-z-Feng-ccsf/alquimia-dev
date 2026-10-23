@@ -66,7 +66,14 @@ RUN mkdir -p build/install/share/licenses/petsc \
           build/install/share/licenses/onnxruntime/
 
 FROM ubuntu:22.04 AS runtime
+ARG IMAGE_VERSION=0.1.0
 ENV DEBIAN_FRONTEND=noninteractive
+# OCI metadata; registries such as GHCR link the package to its source repository
+LABEL org.opencontainers.image.title="alquimia-mcp" \
+      org.opencontainers.image.description="Alquimia MCP server (PFLOTRAN, CrunchFlow, ONNX) over stdio" \
+      org.opencontainers.image.source="https://github.com/Ryan-z-Feng-ccsf/alquimia-ryan" \
+      org.opencontainers.image.version="${IMAGE_VERSION}" \
+      org.opencontainers.image.licenses="LicenseRef-Alquimia-LBNL"
 
 # chown grants permission
 RUN apt-get update && apt-get install -y --no-install-recommends \
