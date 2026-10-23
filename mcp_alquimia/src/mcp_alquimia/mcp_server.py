@@ -185,7 +185,7 @@ def main() -> None:
     parser.add_argument(
         "--run-root",
         type=Path,
-        help="Session artifacts (default: REPOSITORY/build/mcp_alquimia/runs)"
+        help="Session artifacts (default: ~/.alquimia/runs)"
     )
     parser.add_argument(
         "--timeout",
@@ -203,7 +203,7 @@ def main() -> None:
         manager = SessionManager(
             repository,
             args.executable or repository / "build/mcp_alquimia/bin/alquimia_engine_process",
-            args.run_root or repository / "build/mcp_alquimia/runs",
+            args.run_root or Path.home() / ".alquimia/runs",
             args.timeout,
             args.max_sessions,
         )

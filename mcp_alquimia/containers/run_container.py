@@ -18,14 +18,13 @@ def main() -> None:
         SystemExit: Docker is unavailable, is not rootless, or arguments are invalid.
         OSError: Creating the output directory or launching Docker fails.
     """
-    repository = Path(__file__).resolve().parents[2]
     runtime = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", default="alquimia-mcp:local")
     parser.add_argument("--docker-host", default=os.environ.get(
         "DOCKER_HOST", f"unix://{runtime}/alquimia-docker/docker.sock"))
     parser.add_argument("--run-root", type=Path,
-                        default=repository / "build/mcp_alquimia/runs")
+                        default=Path.home() / ".alquimia/runs")
     args = parser.parse_args()
     docker = ["docker", "--host", args.docker_host]
     try:
