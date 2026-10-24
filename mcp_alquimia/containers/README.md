@@ -103,6 +103,46 @@ The server marks `list_cases` and `get_results` read-only and the session tools 
 
 The rule covers only this server, which has no network access and writes only to its results directory.
 
+### macOS and Windows (Docker Desktop)
+
+Docker Desktop runs containers in its own Linux VM and gives bind-mounted host folders to any container user, so these commands keep the image's default unprivileged user and need no UID mapping. Install [Docker Desktop](https://docs.docker.com/desktop/), keep it running while the client uses the server, and run `docker login ghcr.io -u <github-username>` as above. The image is Linux x86-64 only: Intel Macs and x86-64 Windows run it natively, while Apple Silicon runs it under Rosetta (enable "Use Rosetta for x86_64/amd64 emulation on Apple Silicon" in Docker Desktop's General settings), which is slower.
+
+macOS (Terminal, zsh or bash):
+
+```bash
+docker pull --platform=linux/amd64 ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0
+mkdir -p ~/.alquimia/runs
+alquimia_mcp=(docker run --rm -i --init --pull=never --network=none
+  --platform=linux/amd64 --cap-drop=ALL --security-opt=no-new-privileges
+  --mount "type=bind,src=$HOME/.alquimia/runs,dst=/runs"
+  ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0)
+claude mcp add -s user alquimia -- "${alquimia_mcp[@]}"
+codex mcp add alquimia -- "${alquimia_mcp[@]}"
+```
+
+Windows (Command Prompt, `cmd.exe`, which passes `--` and quotes through unchanged; PowerShell may not):
+
+```bat
+docker pull ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0
+mkdir "%USERPROFILE%\.alquimia\runs"
+claude mcp add -s user alquimia -- docker run --rm -i --init --pull=never --network=none --cap-drop=ALL --security-opt=no-new-privileges --mount "type=bind,src=%USERPROFILE%\.alquimia\runs,dst=/runs" ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0
+codex mcp add alquimia -- docker run --rm -i --init --pull=never --network=none --cap-drop=ALL --security-opt=no-new-privileges --mount "type=bind,src=%USERPROFILE%\.alquimia\runs,dst=/runs" ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0
+```
+Or 
+
+```bat
+explorer $env:USERPROFILE\.codex
+```
+
+add MCP to the config.toml
+```toml
+[mcp_servers.alquimia]
+command = "docker"
+args = ["run", "--rm", "-i", "--init", "--pull=never", "--network=none", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--mount", "type=bind,src=C:/Users/mechrev/.alquimia/runs,dst=/runs", "ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0"]
+```
+
+Results appear under `~/.alquimia/runs` (`%USERPROFILE%\.alquimia\runs` on Windows). The Codex timeout and the tool approvals above apply unchanged; on Windows the files are `%USERPROFILE%\.claude\settings.json` and `%USERPROFILE%\.codex\config.toml`. If a session fails with a permission error under `/runs`, add `--user=0:0` before the image name; it is root only inside Docker Desktop's VM.
+
 To transfer a built image without publishing it:
 
 ```bash
