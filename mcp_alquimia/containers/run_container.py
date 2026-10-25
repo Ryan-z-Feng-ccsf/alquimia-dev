@@ -54,7 +54,7 @@ def main() -> None:
     # Assemble container execution command:
     # - Enable stdio interaction and signal handling (--interactive, --init)
     # - Enforce strict isolation: disable networking (--network=none) and use local image only (--pull=never)
-    # - Bind-mount run_root to /runs and rely on rootless UID mapping (--user=0:0)
+    # - Bind-mount run_root to /.alquimia/runs (mirrors ~/.alquimia/runs) and rely on rootless UID mapping (--user=0:0)
     # - Automatically remove container upon exit (--rm)
     command = [
         *docker,

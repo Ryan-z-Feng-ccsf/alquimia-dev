@@ -80,7 +80,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3.10 libopenmpi3 openmpi-bin libgfortran5 libstdc++6 ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 1000 alquimia \
-    && mkdir /runs && chown alquimia:alquimia /runs
+    && mkdir -p /.alquimia/runs && chown -R alquimia:alquimia /.alquimia
 WORKDIR /opt/alquimia
 COPY --from=server-build /opt/alquimia/build/install/lib/ build/install/lib/
 COPY --from=server-build /opt/alquimia/build/install/share/licenses/ licenses/
@@ -104,7 +104,7 @@ ENV PATH="/opt/alquimia/venv/bin:${PATH}" \
     LD_LIBRARY_PATH=/opt/alquimia/build/install/lib \
     PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 USER alquimia
-ENTRYPOINT ["mcp-alquimia", "--repository", "/opt/alquimia", "--run-root", "/runs"]
+ENTRYPOINT ["mcp-alquimia", "--repository", "/opt/alquimia", "--run-root", "/.alquimia/runs"]
 
 # The validation image includes pytest and baseline drivers; the runtime does not.
 FROM server-build AS test

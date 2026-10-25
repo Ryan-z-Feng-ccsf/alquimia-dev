@@ -27,7 +27,7 @@ Configure an MCP client with [mcp_config.example.json](mcp_config.example.json),
 python3 mcp_alquimia/containers/run_container.py
 ```
 
-The launcher verifies that the daemon is rootless, uses an existing image without pulling, disables container networking, and mounts only the results directory at `/runs`. It uses container UID 0, which maps to your ordinary host UID under rootless Docker; this keeps bind-mounted artifacts accessible to you. The image itself defaults to an unprivileged container user for other launch methods. Do not add `-t`: MCP requires unmodified stdin/stdout.
+The launcher verifies that the daemon is rootless, uses an existing image without pulling, disables container networking, and mounts only the results directory at `/.alquimia/runs`, mirroring the host path `~/.alquimia/runs`. It uses container UID 0, which maps to your ordinary host UID under rootless Docker; this keeps bind-mounted artifacts accessible to you. The image itself defaults to an unprivileged container user for other launch methods. Do not add `-t`: MCP requires unmodified stdin/stdout.
 
 Results persist under `~/.alquimia/runs/<session_id>/`. Override the location with `--run-root`; use `--docker-host` or `DOCKER_HOST` for another rootless endpoint. Each MCP connection starts one container, and each simulation session starts an engine process inside it. Normal client disconnect closes all sessions and removes the container while preserving results.
 
@@ -114,7 +114,7 @@ docker pull --platform=linux/amd64 ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0
 mkdir -p ~/.alquimia/runs
 alquimia_mcp=(docker run --rm -i --init --pull=never --network=none
   --platform=linux/amd64 --cap-drop=ALL --security-opt=no-new-privileges
-  --mount "type=bind,src=$HOME/.alquimia/runs,dst=/runs"
+  --mount "type=bind,src=$HOME/.alquimia/runs,dst=/.alquimia/runs"
   ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0)
 claude mcp add -s user alquimia -- "${alquimia_mcp[@]}"
 codex mcp add alquimia -- "${alquimia_mcp[@]}"
@@ -141,7 +141,7 @@ command = "docker"
 args = ["run", "--rm", "-i", "--init", "--pull=never", "--network=none", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--mount", "type=bind,src=C:/Users/mechrev/.alquimia/runs,dst=/.alquimia/runs", "ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0"]
 ```
 
-Results appear under `~/.alquimia/runs` (`%USERPROFILE%\.alquimia\runs` on Windows). The Codex timeout and the tool approvals above apply unchanged; on Windows the files are `%USERPROFILE%\.claude\settings.json` and `%USERPROFILE%\.codex\config.toml`. If a session fails with a permission error under `/runs`, add `--user=0:0` before the image name; it is root only inside Docker Desktop's VM.
+Results appear under `~/.alquimia/runs` (`%USERPROFILE%\.alquimia\runs` on Windows). The Codex timeout and the tool approvals above apply unchanged; on Windows the files are `%USERPROFILE%\.claude\settings.json` and `%USERPROFILE%\.codex\config.toml`. If a session fails with a permission error under `/.alquimia/runs`, add `--user=0:0` before the image name; it is root only inside Docker Desktop's VM.
 
 To transfer a built image without publishing it:
 
