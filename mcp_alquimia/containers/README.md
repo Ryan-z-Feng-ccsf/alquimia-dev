@@ -75,7 +75,7 @@ fi
 
 alquimia_mcp=("${alquimia_docker[@]}" run --rm -i --init --pull=never --network=none
   "${alquimia_user[@]}" --cap-drop=ALL --security-opt=no-new-privileges
-  --mount "type=bind,src=$HOME/.alquimia/runs,dst=/runs"
+  --mount "type=bind,src=$HOME/.alquimia/runs,dst=/.alquimia/runs"
   ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0)
 
 # Claude Code: user scope makes the server available in every directory.
@@ -125,8 +125,8 @@ Windows (Command Prompt, `cmd.exe`, which passes `--` and quotes through unchang
 ```bat
 docker pull ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0
 mkdir "%USERPROFILE%\.alquimia\runs"
-claude mcp add -s user alquimia -- docker run --rm -i --init --pull=never --network=none --cap-drop=ALL --security-opt=no-new-privileges --mount "type=bind,src=%USERPROFILE%\.alquimia\runs,dst=/runs" ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0
-codex mcp add alquimia -- docker run --rm -i --init --pull=never --network=none --cap-drop=ALL --security-opt=no-new-privileges --mount "type=bind,src=%USERPROFILE%\.alquimia\runs,dst=/runs" ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0
+claude mcp add -s user alquimia -- docker run --rm -i --init --pull=never --network=none --cap-drop=ALL --security-opt=no-new-privileges --mount "type=bind,src=%USERPROFILE%\.alquimia\runs,dst=/.alquimia/runs" ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0
+codex mcp add alquimia -- docker run --rm -i --init --pull=never --network=none --cap-drop=ALL --security-opt=no-new-privileges --mount "type=bind,src=%USERPROFILE%\.alquimia\runs,dst=/.alquimia/runs" ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0
 ```
 Or 
 
@@ -138,7 +138,7 @@ add MCP to the config.toml
 ```toml
 [mcp_servers.alquimia]
 command = "docker"
-args = ["run", "--rm", "-i", "--init", "--pull=never", "--network=none", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--mount", "type=bind,src=C:/Users/mechrev/.alquimia/runs,dst=/runs", "ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0"]
+args = ["run", "--rm", "-i", "--init", "--pull=never", "--network=none", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--mount", "type=bind,src=C:/Users/mechrev/.alquimia/runs,dst=/.alquimia/runs", "ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0"]
 ```
 
 Results appear under `~/.alquimia/runs` (`%USERPROFILE%\.alquimia\runs` on Windows). The Codex timeout and the tool approvals above apply unchanged; on Windows the files are `%USERPROFILE%\.claude\settings.json` and `%USERPROFILE%\.codex\config.toml`. If a session fails with a permission error under `/runs`, add `--user=0:0` before the image name; it is root only inside Docker Desktop's VM.
