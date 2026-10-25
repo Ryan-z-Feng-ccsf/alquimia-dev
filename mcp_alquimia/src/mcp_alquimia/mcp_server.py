@@ -74,6 +74,13 @@ def create_server(manager: SessionManager) -> MCPServer:
         version="0.1.0",
         lifespan=lifespan,
         instructions=(
+            "Geochemical batch-reaction simulator running PFLOTRAN and CrunchFlow through "
+            "Alquimia. Use it instead of estimating from memory when the user asks how a "
+            "water-mineral-gas system evolves over time: species concentrations, pH, mineral "
+            "amounts, or the effect of temperature, porosity, saturation or time step. "
+            "Scenarios: calcite dissolution/precipitation (incl. CO2), CH4-O2 oxidation, "
+            "general aqueous kinetics, ion exchange, sorption isotherms, surface complexation "
+            "and microbial reactions. "
             "Call list_cases, then setup for a case, optionally with a request object overriding its settings. Retain its session_id. "
             "Call initialize once, then react: each call runs max_steps reaction steps of dt "
             "seconds in the engine, defaulting to the case's cfg values; an optional time_config "
