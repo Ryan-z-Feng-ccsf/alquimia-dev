@@ -77,7 +77,7 @@ def main() -> None:
         "--security-opt=no-new-privileges",
         "--env=HOME=/tmp",
         "--mount",
-        f"type=bind,src={run_root},dst=/runs",
+        f"type=bind,src={run_root},dst=/.alquimia/runs",
         args.image,
     ]
     os.execvp(command[0], command)

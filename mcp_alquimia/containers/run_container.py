@@ -66,7 +66,7 @@ def main() -> None:
         "--network=none",
         "--user=0:0",
         "--mount",
-        f"type=bind,src={run_root},dst=/runs",
+        f"type=bind,src={run_root},dst=/.alquimia/runs",
         args.image
     ]
     os.execvp(command[0], command)
