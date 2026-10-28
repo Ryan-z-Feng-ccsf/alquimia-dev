@@ -104,7 +104,7 @@ class ManualIndex:
                     "engine": engine_name,
                     "title": title,
                     "snippet": snippet,
-                    "score": round(-rank, 3),
+                    "score": round(-rank, 3),   # Get the positive floating number
                 }
                 for doc_id, engine_name, title, snippet, rank in rows
             ]
@@ -119,6 +119,7 @@ class ManualIndex:
         """
         with self.connect() as connection:
             row = connection.execute(
+                # doc_id, engine, title, body, source
                 "SELECT engine, title, source, body FROM sections WHERE doc_id = ?",
                 (doc_id,),
             ).fetchone()
