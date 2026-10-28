@@ -4,14 +4,15 @@ import argparse
 from contextlib import asynccontextmanager
 from pathlib import Path
 import subprocess
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import anyio
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
-from pydantic import ConfigDict, ValidationError
+from pydantic import ConfigDict, Field, ValidationError
 
+from .manual_search import ManualIndex
 from .session_manager import SessionManager, list_cases as describe_cases
 from .setup_request import SetupRequest
 from .subprocess_client import EngineProcessError
@@ -51,15 +52,20 @@ def forbid_unknown_arguments(server: MCPServer) -> None:
         tool.parameters = strict_arguments.model_json_schema(by_alias=True)
 
 
-def create_server(manager: SessionManager) -> MCPServer:
+def create_server(manager: SessionManager, manual_index: Path | None = None) -> MCPServer:
     """Create an MCP server that owns and cleans up the supplied session manager.
 
     Args:
         manager: Runtime configuration and native process owner for this server.
+        manual_index: Index read by search_docs and read_doc (default:
+            REPOSITORY/build/mcp_alquimia/manual_index.sqlite).
 
     Returns:
         A stdio-ready server; no engines start until the setup tool is called.
     """
+    manuals = ManualIndex(
+        manual_index or manager.repository / "build/mcp_alquimia/manual_index.sqlite")
+
     @asynccontextmanager
     async def lifespan(_server):
         """Reap all native sessions when the MCP connection finishes."""
@@ -88,7 +94,9 @@ def create_server(manager: SessionManager) -> MCPServer:
             "to inspect state, and close when finished. Each session has an isolated "
             "native process and artifact directory. Failed native calls end that session; "
             "create a new one. Chemistry constraints come from the case input; physical settings default to the benchmark and may be overridden in setup. "
-            "ONNX has no pH output and ignores dt during inference. Engines are prebuilt."
+            "ONNX has no pH output and ignores dt during inference. Engines are prebuilt. "
+            "Call search_docs, then read_doc, to look up PFLOTRAN or CrunchFlow manual "
+            "sections (input keywords, reaction types, units) instead of recalling them."
         ),
     )
     # Safe and harmless. Does not modify any system state (e.g., fetching lists, reading results).
@@ -171,6 +179,26 @@ def create_server(manager: SessionManager) -> MCPServer:
         """Close and reap a session, retaining artifacts; repeated calls are harmless."""
         return await invoke(manager.close, session_id)
 
+    @server.tool(annotations=read_only)
+    async def search_docs(
+        query: str,
+        engine: Literal["pflotran", "crunchflow"] | None = None,
+        limit: Annotated[int, Field(ge=1, le=20)] = 5,
+    ) -> dict[str, Any]:
+        """Search the PFLOTRAN and CrunchFlow manuals; returns ranked section snippets.
+
+        Args:
+            query: Words or input keywords, e.g. "AQUEOUS_KINETICS rate constant".
+            engine: Restrict results to one engine's manual.
+            limit: Maximum number of sections returned.
+        """
+        return await invoke(manuals.search, query, engine, limit)
+
+    @server.tool(annotations=read_only)
+    async def read_doc(doc_id: str) -> dict[str, Any]:
+        """Return the full text of one manual section by a doc_id from search_docs."""
+        return await invoke(manuals.read_section, doc_id)
+
     forbid_unknown_arguments(server)
     return server
 
@@ -195,6 +223,11 @@ def main() -> None:
         help="Session artifacts (default: ~/.alquimia/runs)"
     )
     parser.add_argument(
+        "--manual-index",
+        type=Path,
+        help="Manual search index (default: REPOSITORY/build/mcp_alquimia/manual_index.sqlite)"
+    )
+    parser.add_argument(
         "--timeout",
         type=float, default=60.0,
         help="Maximum seconds per native response"
@@ -216,7 +249,7 @@ def main() -> None:
         )
     except ValueError as error:
         parser.error(str(error))
-    create_server(manager).run(transport="stdio")
+    create_server(manager, args.manual_index).run(transport="stdio")
 
 
 if __name__ == "__main__":
