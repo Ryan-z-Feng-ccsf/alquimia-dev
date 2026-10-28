@@ -40,7 +40,7 @@ async def smoke(image: str, docker_host: str | None, output: Path) -> dict:
     async with Client(StdioServerParameters(command=sys.executable, args=args),
                       read_timeout_seconds=60) as client:
         tools = await client.list_tools()
-        assert len(tools.tools) == 6
+        assert len(tools.tools) == 8
         # 3 different engines
         cases = await client.call_tool("list_cases")
         assert not cases.is_error, cases

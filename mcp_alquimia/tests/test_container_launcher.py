@@ -32,7 +32,7 @@ def test_launcher_preserves_stdio_and_host_artifacts(launcher, monkeypatch, tmp_
     assert "--interactive" in command and "--tty" not in command and "-t" not in command
     assert "--network=none" in command and "--pull=never" in command
     assert "--user=0:0" in command
-    assert f"type=bind,src={run_root},dst=/runs" in command
+    assert f"type=bind,src={run_root},dst=/.alquimia/runs" in command
     assert run_root.is_dir()
     # MCP(stdio) only parse JSON
     assert capsys.readouterr().out == ""
@@ -72,14 +72,14 @@ def test_rootful_launcher_runs_as_host_user(rootful_launcher, monkeypatch, tmp_p
     monkeypatch.setattr(rootful_launcher.os, "execvp",
                         lambda program, args: commands.append(args))
     rootful_launcher.main()
-    command = commands
+    command, = commands
     assert command[:3] == ["docker", "--host", "unix:///test/docker.sock"]
     assert "--interactive" in command and "--tty" not in command and "-t" not in command
     assert "--network=none" in command and "--pull=never" in command
     assert f"--user={rootful_launcher.os.getuid()}:{rootful_launcher.os.getgid()}" in command
     assert "--user=0:0" not in command
     assert "--cap-drop=ALL" in command and "--security-opt=no-new-privileges" in command
-    assert f"type=bind,src={run_root},dst=/runs" in command
+    assert f"type=bind,src={run_root},dst=/.alquimia/runs" in command
     assert run_root.is_dir()
     assert capsys.readouterr().out == ""
 
