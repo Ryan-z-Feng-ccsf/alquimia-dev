@@ -87,7 +87,8 @@ async def test_discovery_and_missing_runtime(repository_root, tmp_path):
     async with Client(create_server(manager)) as client:
         listing = await client.list_tools()
         tools = {tool.name: tool for tool in listing.tools}
-        assert set(tools) == {"list_cases", "setup", "initialize", "react", "get_results", "close"}
+        assert set(tools) == {"list_cases", "setup", "initialize", "react", "get_results", "close",
+                              "search_docs", "read_doc"}
         assert tools["setup"].input_schema["properties"]["case"]["type"] == "string"
         assert "request" in tools["setup"].input_schema["properties"]
         # time_config has a default value

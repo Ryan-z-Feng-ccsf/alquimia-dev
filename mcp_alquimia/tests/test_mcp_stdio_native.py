@@ -36,7 +36,7 @@ async def test_stdio_native_lifecycle(repository_root, engine_process_executable
         cwd=tmp_path,
     )
     async with Client(parameters, read_timeout_seconds=30) as client:
-        assert len((await client.list_tools()).tools) == 6
+        assert len((await client.list_tools()).tools) == 8
         result = await client.call_tool("setup", {"case": case})
         assert not result.is_error, result
         # Parsed JSON
