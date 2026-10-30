@@ -93,6 +93,8 @@ def split_rst(text: str) -> list[tuple[list[str], str]]:
             if style not in styles:
                 styles.append(style)
             level = styles.index(style)
+            # Return to the parent heading
+            # Add the current heading
             path = path[:level] + [line.strip()]
             # Store new body
             body = []
@@ -138,6 +140,8 @@ def split_markdown(text: str) -> list[tuple[list[str], str]]:
             # Numbers of #
             level = len(heading.group(1))
             # group(2): heading
+            # Return to the parent heading
+            # Add the current heading
             path = path[:level - 1] + [heading.group(2)]
             body = []
         else:
