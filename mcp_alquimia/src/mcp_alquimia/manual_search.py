@@ -1,5 +1,6 @@
 """Query the prebuilt SQLite FTS5 index of the PFLOTRAN and CrunchFlow manuals."""
 
+from contextlib import closing
 from pathlib import Path
 import re
 import sqlite3
@@ -92,7 +93,9 @@ class ManualIndex:
         # so we order in default ascending order.
         sql += " ORDER BY rank LIMIT ?"
         parameters.append(limit)
-        with self.connect() as connection:
+        # with in SQLite3 only manages the transaction
+        # Close it manually
+        with closing(self.connect()) as connection:
             try:
                 rows = connection.execute(sql, parameters).fetchall()
             except sqlite3.Error as error:
@@ -117,7 +120,7 @@ class ManualIndex:
             FileNotFoundError: The index has not been built.
             ValueError: No section has this doc_id.
         """
-        with self.connect() as connection:
+        with closing(self.connect()) as connection:
             row = connection.execute(
                 # doc_id, engine, title, body, source
                 "SELECT engine, title, source, body FROM sections WHERE doc_id = ?",
