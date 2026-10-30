@@ -246,6 +246,8 @@ def sections_from_file(engine: str, path: Path, root: Path) -> list[dict[str, st
     slug = re.sub(r"[^A-Za-z0-9]+", "-", str(relative_path.with_suffix(""))).strip("-").lower()
     rows = []
     for title_path, body in pieces:
+        # Filter the empty body
+        # Split long paragraphs into small chunks
         parts = split_long(body.strip())
         for number, part in enumerate(parts, start=1):
             title = " > ".join(title_path or [path.stem])
