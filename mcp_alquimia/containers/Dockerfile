@@ -1,5 +1,8 @@
+# Build the local image
 # cd project root
 # docker build -t alquimia-mcp:local -f mcp_alquimia/containers/Dockerfile .
+# Build the published image
+# docker build -t ghcr.io/ryan-z-feng-ccsf/alquimia-mcp:0.1.0 -f mcp_alquimia/containers/Dockerfile .
 # Ubuntu 22.04 supplies /usr/bin/python3.10, required by the PETSc superbuild.
 FROM ubuntu:22.04 AS native-build
 ARG BUILD_JOBS=4
@@ -57,7 +60,7 @@ RUN python3.10 mcp_alquimia/build_tools/build_manual_index.py \
       --source pflotran=mcp_alquimia/docs/pflotran \
       --source crunchflow=mcp_alquimia/docs/crunchflow \
       --source alquimia=mcp_alquimia/docs/alquimia
-      
+
 # Cjson license is in build/install/share/licenses/cjson (through cmake Superbuild)
 RUN mkdir -p build/install/share/licenses/petsc \
              build/install/share/licenses/pflotran \
