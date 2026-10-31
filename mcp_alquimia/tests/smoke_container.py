@@ -42,9 +42,9 @@ async def smoke(image: str, docker_host: str | None, output: Path) -> dict:
         tools = await client.list_tools()
         assert len(tools.tools) == 8
         # The image ships the knowledge base index for every source
-        for engine in ("pflotran", "crunchflow", "alquimia"):
+        for collection in ("pflotran", "crunchflow", "alquimia"):
             found = await client.call_tool(
-                "search_docs", {"query": "mineral", "engine": engine, "limit": 1})
+                "search_docs", {"query": "mineral", "collection": collection, "limit": 1})
             assert not found.is_error, found
             hit, = found.structured_content["results"]
             section = await client.call_tool("read_doc", {"doc_id": hit["doc_id"]})

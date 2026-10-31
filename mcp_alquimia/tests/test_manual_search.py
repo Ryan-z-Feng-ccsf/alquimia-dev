@@ -121,9 +121,9 @@ def test_search_ranks_keyword_sections(index_path):
     manuals = ManualIndex(index_path)
     best = manuals.search("MINERAL_KINETICS rate constant?")["results"][0]
     assert best["title"] == "Chemistry > MINERAL_KINETICS"
-    assert best["engine"] == "pflotran"
-    only_crunch = manuals.search("kinetics", engine="crunchflow")["results"]
-    assert only_crunch and {hit["engine"] for hit in only_crunch} == {"crunchflow"}
+    assert best["collection"] == "pflotran"
+    only_crunch = manuals.search("kinetics", collection="crunchflow")["results"]
+    assert only_crunch and {hit["collection"] for hit in only_crunch} == {"crunchflow"}
     assert manuals.search('methane* (oxidation) "NEAR', limit=1)["results"][0]["title"].endswith(
         "AQUEOUS_KINETICS")
     assert manuals.search("AND OR NOT")["results"] is not None
@@ -147,9 +147,22 @@ async def test_docs_tools_over_mcp(repository_root, index_path, tmp_path):
         assert hit["title"] == "Keyword blocks > ION_EXCHANGE"
         section = await client.call_tool("read_doc", {"doc_id": hit["doc_id"]})
         assert "selectivity" in section.structured_content["text"]
-        for arguments in ({"query": "x", "engine": "onnx"}, {"query": "x", "limit": 0},
+        schema = {tool.name: tool for tool in (await client.list_tools()).tools}[
+            "search_docs"].input_schema
+        assert schema["properties"]["limit"]["maximum"] == 20
+        assert "description" in schema["properties"]["collection"]
+        # The renamed engine argument, an unknown collection, out-of-range limits, and
+        # queries without words or too long are all rejected before the index is read.
+        for arguments in ({"query": "x", "engine": "crunchflow"},
+                          {"query": "x", "collection": "onnx"},
+                          {"query": "x", "limit": 0}, {"query": "x", "limit": 21},
+                          {"query": "?!"}, {"query": ""}, {"query": "x" * 501},
                           {"query": "x", "top_k": 3}):
-            assert (await client.call_tool("search_docs", arguments)).is_error
+            assert (await client.call_tool("search_docs", arguments)).is_error, arguments
+        filtered = await client.call_tool(
+            "search_docs", {"query": "kinetics", "collection": "crunchflow"})
+        assert {hit["collection"] for hit in filtered.structured_content["results"]} == {
+            "crunchflow"}
     async with Client(create_server(manager, tmp_path / "absent.sqlite")) as client:
         missing = await client.call_tool("search_docs", {"query": "calcite"})
         assert missing.is_error
