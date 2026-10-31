@@ -96,7 +96,9 @@ def create_server(manager: SessionManager, manual_index: Path | None = None) -> 
             "create a new one. Chemistry constraints come from the case input; physical settings default to the benchmark and may be overridden in setup. "
             "ONNX has no pH output and ignores dt during inference. Engines are prebuilt. "
             "Call search_docs, then read_doc, to look up PFLOTRAN or CrunchFlow manual "
-            "sections (input keywords, reaction types, units) instead of recalling them."
+            "sections (input keywords, reaction types, units) instead of recalling them, and "
+            "Alquimia known issues (engine=alquimia) when a setting seems to have no effect "
+            "or a result looks wrong."
         ),
     )
     # Safe and harmless. Does not modify any system state (e.g., fetching lists, reading results).
@@ -182,14 +184,15 @@ def create_server(manager: SessionManager, manual_index: Path | None = None) -> 
     @server.tool(annotations=read_only)
     async def search_docs(
         query: str,
-        engine: Literal["pflotran", "crunchflow"] | None = None,
+        engine: Literal["pflotran", "crunchflow", "alquimia"] | None = None,
         limit: Annotated[int, Field(ge=1, le=20)] = 5,
     ) -> dict[str, Any]:
-        """Search the PFLOTRAN and CrunchFlow manuals; returns ranked section snippets.
+        """Search the engine manuals and Alquimia known issues; returns ranked section snippets.
 
         Args:
             query: Words or input keywords, e.g. "AQUEOUS_KINETICS rate constant".
-            engine: Restrict results to one engine's manual.
+            engine: Restrict results to one engine's manual, or "alquimia" for
+                known interface issues and limitations.
             limit: Maximum number of sections returned.
         """
         return await invoke(manuals.search, query, engine, limit)

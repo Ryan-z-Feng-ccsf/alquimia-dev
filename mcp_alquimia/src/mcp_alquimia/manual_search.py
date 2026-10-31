@@ -1,4 +1,4 @@
-"""Query the prebuilt SQLite FTS5 index of the PFLOTRAN and CrunchFlow manuals."""
+"""Query the prebuilt SQLite FTS5 index of the engine manuals and Alquimia known issues."""
 
 from contextlib import closing
 from pathlib import Path
@@ -8,7 +8,7 @@ from typing import Any
 
 
 # Engines whose manuals the index may hold; build_manual_index.py writes the same names.
-MANUAL_ENGINES = ("pflotran", "crunchflow")
+MANUAL_ENGINES = ("pflotran", "crunchflow", "alquimia")
 
 # Section bodies are split near this size at build time; read_section never returns more.
 MAX_SECTION_CHARS = 8000

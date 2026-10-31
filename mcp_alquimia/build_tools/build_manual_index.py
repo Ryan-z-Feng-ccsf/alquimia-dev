@@ -10,7 +10,7 @@ import tempfile
 
 
 # Must match MANUAL_ENGINES in src/mcp_alquimia/manual_search.py.
-ENGINES = ("pflotran", "crunchflow")
+ENGINES = ("pflotran", "crunchflow", "alquimia")
 SUFFIXES = (".rst", ".md", ".txt", ".pdf")
 
 # Sections longer than this are split on paragraph boundaries into numbered parts;
