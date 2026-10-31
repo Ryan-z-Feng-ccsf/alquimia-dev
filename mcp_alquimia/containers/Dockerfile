@@ -47,16 +47,27 @@ RUN python3.10 -m pip install --no-cache-dir "uv==${UV_VERSION}"
 COPY models/ models/
 COPY mcp_alquimia/ mcp_alquimia/
 ENV UV_PROJECT_ENVIRONMENT=/opt/alquimia/venv UV_LINK_MODE=copy
+
 # Build the entry point for the C subprocess
 RUN uv sync --project mcp_alquimia --locked --no-dev --no-editable \
     && python3.10 mcp_alquimia/build_tools/build_alquimia_engine_process.py
+
+# Knowledge base index read by search_docs/read_doc (build/mcp_alquimia/manual_index.sqlite)
+RUN python3.10 mcp_alquimia/build_tools/build_manual_index.py \
+      --source pflotran=mcp_alquimia/docs/pflotran \
+      --source crunchflow=mcp_alquimia/docs/crunchflow \
+      --source alquimia=mcp_alquimia/docs/alquimia
+      
 # Cjson license is in build/install/share/licenses/cjson (through cmake Superbuild)
 RUN mkdir -p build/install/share/licenses/petsc \
              build/install/share/licenses/pflotran \
+             build/install/share/licenses/pflotran-documentation \
              build/install/share/licenses/crunchflow \
              build/install/share/licenses/onnxruntime \
     && cp build/external/petsc/src/petsc/LICENSE build/install/share/licenses/petsc/ \
     && cp build/external/pflotran/src/pflotran/LICENSE build/install/share/licenses/pflotran/ \
+    && cp mcp_alquimia/docs/pflotran/LICENSE mcp_alquimia/docs/pflotran/COPYRIGHT \
+          build/install/share/licenses/pflotran-documentation/ \
     && cp build/external/crunchflow/src/crunchflow/license.txt \
           build/external/crunchflow/src/crunchflow/Legal.txt \
           build/external/crunchflow/src/crunchflow/CopyrightNotice-CrunchFlow.txt \
@@ -85,6 +96,7 @@ WORKDIR /opt/alquimia
 COPY --from=server-build /opt/alquimia/build/install/lib/ build/install/lib/
 COPY --from=server-build /opt/alquimia/build/install/share/licenses/ licenses/
 COPY --from=server-build /opt/alquimia/build/mcp_alquimia/bin/ build/mcp_alquimia/bin/
+COPY --from=server-build /opt/alquimia/build/mcp_alquimia/manual_index.sqlite build/mcp_alquimia/
 COPY --from=server-build /opt/alquimia/venv/ venv/
 
 # Necessary .cfg / .in / .dbs / .dat / .dbsx

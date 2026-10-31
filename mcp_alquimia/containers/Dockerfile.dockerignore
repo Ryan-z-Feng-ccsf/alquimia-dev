@@ -31,6 +31,8 @@ mcp_alquimia/*
 !mcp_alquimia/engine_process/**
 !mcp_alquimia/build_tools/
 !mcp_alquimia/build_tools/**
+!mcp_alquimia/docs/
+!mcp_alquimia/docs/**
 !mcp_alquimia/tests/
 !mcp_alquimia/tests/**
 !mcp_alquimia/containers/
