@@ -301,6 +301,8 @@ def write_index(rows: list[dict[str, str]], output: Path) -> None:
             # Optimize the FTS5 B Tree
             connection.execute("INSERT INTO sections(sections) VALUES ('optimize')")
         connection.close()
+        # mkstemp creates the file owner-only (mode 0600); the server may run as another user (container).
+        os.chmod(temporary, 0o644)
         # Atomic
         os.replace(temporary, output)
     except BaseException:
