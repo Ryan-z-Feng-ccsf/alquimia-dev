@@ -1,4 +1,4 @@
-"""Build the SQLite FTS5 index of engine manuals that the search_docs tool reads."""
+"""Build the SQLite FTS5 index of engine manuals and Alquimia known issues for search_docs."""
 
 import argparse
 import os
@@ -8,9 +8,10 @@ import sqlite3
 import subprocess
 import tempfile
 
+# Must match Collection in src/mcp_alquimia/manual_search.py.
+from mcp_alquimia.manual_search import COLLECTIONS
 
-# Must match MANUAL_ENGINES in src/mcp_alquimia/manual_search.py.
-ENGINES = ("pflotran", "crunchflow", "alquimia")
+
 SUFFIXES = (".rst", ".md", ".txt", ".pdf")
 
 # Sections longer than this are split on paragraph boundaries into numbered parts;
@@ -200,29 +201,29 @@ def split_long(body: str, limit: int = SPLIT_CHARS) -> list[str]:
     return parts
 
 
-def sections_from_file(engine: str, path: Path, root: Path) -> list[dict[str, str]]:
+def sections_from_file(collection: str, path: Path, root: Path) -> list[dict[str, str]]:
     """Read one manual file into index rows with stable ids and readable titles.
 
     Args:
-        engine: One of ENGINES.
+        collection: One of COLLECTIONS.
         path: Manual file with a suffix in SUFFIXES.
         root: Source directory; ids use the path relative to it.
 
     Returns:
-        list[dict[str, str]]: Rows with doc_id, engine, title, body, and source; empty sections are dropped.
+        list[dict[str, str]]: Rows with doc_id, collection, title, body, and source; empty sections are dropped.
         
         Examples:
         [
             {
                 "doc_id": "pflotran/getting-started/0",
-                "engine": "pflotran",
+                "collection": "pflotran",
                 "title": "Introduction > Installation",
                 "body": "To install PFLOTRAN, you must first install PETSc...",
                 "source": "getting-started.md"
             },
             {
                 "doc_id": "pflotran/getting-started/1",
-                "engine": "pflotran",
+                "collection": "pflotran",
                 "title": "Introduction > Installation (part 2)",
                 "body": "Next, configure the environment variables...",
                 "source": "getting-started.md"
@@ -255,8 +256,8 @@ def sections_from_file(engine: str, path: Path, root: Path) -> list[dict[str, st
                 title += f" (part {number})"
             rows.append(
                 {
-                    "doc_id": f"{engine}/{slug}/{len(rows)}",
-                    "engine": engine,
+                    "doc_id": f"{collection}/{slug}/{len(rows)}",
+                    "collection": collection,
                     "title": title,
                     "body": part,
                     "source": str(relative_path)
@@ -266,14 +267,14 @@ def sections_from_file(engine: str, path: Path, root: Path) -> list[dict[str, st
 
 
 def collect_rows(sources: list[tuple[str, Path]]) -> list[dict[str, str]]:
-    """Gather rows from every supported file under each engine's source path."""
+    """Gather rows from every supported file under each collection's source path."""
     rows = []
-    for engine, source in sources:
+    for collection, source in sources:
         files = [source] if source.is_file() else sorted(
             path for path in source.rglob("*") if path.suffix in SUFFIXES   # Recursive searching for files
         )
         for path in files:
-            rows.extend(sections_from_file(engine, path, source if source.is_dir() else path))
+            rows.extend(sections_from_file(collection, path, source if source.is_dir() else path))
     return rows
 
 
@@ -291,12 +292,12 @@ def write_index(rows: list[dict[str, str]], output: Path) -> None:
             # Case folding (Only keep the lowercase letters)
             # Only tokenize the title, body
             connection.execute(
-                "CREATE VIRTUAL TABLE sections USING fts5(doc_id UNINDEXED, engine UNINDEXED, "
+                "CREATE VIRTUAL TABLE sections USING fts5(doc_id UNINDEXED, collection UNINDEXED, "
                 "title, body, source UNINDEXED, tokenize='porter unicode61')"
             )
             # Insert the value based on the rows dict
             connection.executemany(
-                "INSERT INTO sections VALUES (:doc_id, :engine, :title, :body, :source)", rows
+                "INSERT INTO sections VALUES (:doc_id, :collection, :title, :body, :source)", rows
             )
             # Optimize the FTS5 B Tree
             connection.execute("INSERT INTO sections(sections) VALUES ('optimize')")
@@ -313,18 +314,19 @@ def write_index(rows: list[dict[str, str]], output: Path) -> None:
 
 
 def parse_source(value: str) -> tuple[str, Path]:
-    """Parse an ENGINE=PATH command-line source."""
-    engine, separator, path = value.partition("=")
-    if not separator or engine.lower() not in ENGINES:
-        raise argparse.ArgumentTypeError(f"expected ENGINE=PATH with ENGINE in {ENGINES}")
+    """Parse a COLLECTION=PATH command-line source."""
+    collection, separator, path = value.partition("=")
+    if not separator or collection.lower() not in COLLECTIONS:
+        raise argparse.ArgumentTypeError(
+            f"expected COLLECTION=PATH with COLLECTION in {COLLECTIONS}")
     path = Path(path).resolve()
     if not path.exists():
         raise argparse.ArgumentTypeError(f"source does not exist: {path}")
-    return engine.lower(), path
+    return collection.lower(), path
 
 
 def main():
-    """Index manual sources given as ENGINE=PATH and print the index path and row count.
+    """Index sources given as COLLECTION=PATH and print the index path and row count.
 
     Raises:
         SystemExit: Arguments are invalid or no sections were found.
@@ -334,7 +336,7 @@ def main():
     root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=parse_source, action="append", required=True,
-                        metavar="ENGINE=PATH",
+                        metavar="COLLECTION=PATH",
                         help=f"Manual file or directory ({', '.join(SUFFIXES)}); repeatable")
     parser.add_argument("--output", type=Path,
                         default=root / "build/mcp_alquimia/manual_index.sqlite")

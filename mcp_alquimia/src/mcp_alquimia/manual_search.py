@@ -4,11 +4,32 @@ from contextlib import closing
 from pathlib import Path
 import re
 import sqlite3
-from typing import Any
+from typing import Annotated, Any, Literal, get_args
+
+from pydantic import Field
 
 
-# Engines whose manuals the index may hold; build_manual_index.py writes the same names.
-MANUAL_ENGINES = ("pflotran", "crunchflow", "alquimia")
+# Document collections the index may hold; build_manual_index.py writes the same names.
+Collection = Literal["pflotran", "crunchflow", "alquimia"]
+COLLECTIONS: tuple[str, ...] = get_args(Collection)
+
+# search_docs arguments, validated before the index is opened.
+SearchQuery = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=500,
+        pattern=r"\w",
+        description='Words or input-file keywords, e.g. "AQUEOUS_KINETICS rate constant"; '
+                    "matching is case-insensitive and stemmed."),
+]
+SearchCollection = Annotated[
+    Collection | None,
+    Field(
+        description='Restrict results to the "pflotran" or "crunchflow" manual, or to '
+                    '"alquimia" known interface issues and limitations; omit to search all.'),
+]
+SearchLimit = Annotated[int, Field(ge=1, le=20, description="Maximum number of sections returned.")]
 
 # Section bodies are split near this size at build time; read_section never returns more.
 MAX_SECTION_CHARS = 8000
@@ -28,6 +49,7 @@ def match_expression(query: str) -> str:
 
     Example:
         "AQUEOUS-KINETICS (Part 1)?" -> "AQUEOUS" OR "KINETICS" OR "Part" OR "1"
+        "AQUEOUS_KINETICS (Part 1)?" -> "AQUEOUS_KINETICS" OR "Part" OR "1"
     """
     words = _TOKEN.findall(query)
     if not words:
@@ -60,34 +82,37 @@ class ManualIndex:
         return sqlite3.connect(f"{self.path.resolve().as_uri()}?mode=ro", uri=True)
 
     def search(
-        self, query: str, engine: str | None = None, limit: int = 5
+        self, query: str, collection: str | None = None, limit: int = 5
     ) -> dict[str, Any]:
         """Rank manual sections against a free-text query.
 
         Args:
             query: Words or input-deck keywords; matching is case-insensitive and stemmed.
-            engine: Restrict results to one of MANUAL_ENGINES, or None for all.
+            collection: Restrict results to one of COLLECTIONS, or None for all.
             limit: Maximum number of sections returned.
 
         Returns:
-            {"results": [{doc_id, engine, title, snippet, score}]}, best match first;
+            {"results": [{doc_id, collection, title, snippet, score}]}, best match first;
             a higher score is a better match.
 
         Raises:
             FileNotFoundError: The index has not been built.
             ValueError: The query has no words or the index cannot be read.
         """
+        # Example:
+        # Phase query
+        # Match will split the "AQUEOUS_KINETICS" to "aqueous kinetics"
         sql = (
-            # doc_id, engine title, body, source
-            "SELECT doc_id, engine, title, snippet(sections, 3, '', '', ' ... ', 48), "
+            # doc_id, collection, title, body, source
+            "SELECT doc_id, collection, title, snippet(sections, 3, '', '', ' ... ', 48), "
             # Title hits count five times as much as body hits.
             "bm25(sections, 0.0, 0.0, 5.0, 1.0, 0.0) AS rank "
             "FROM sections WHERE sections MATCH ?"
         )
         parameters: list[Any] = [match_expression(query)]
-        if engine is not None:
-            sql += " AND engine = ?"
-            parameters.append(engine)
+        if collection is not None:
+            sql += " AND collection = ?"
+            parameters.append(collection)
         # Set the limit for the sections
         # # Note: SQLite FTS5 BM25 scores are negative. Lower scores indicate higher relevance,
         # so we order in default ascending order.
@@ -104,12 +129,12 @@ class ManualIndex:
             "results": [
                 {
                     "doc_id": doc_id,
-                    "engine": engine_name,
+                    "collection": collection_name,
                     "title": title,
                     "snippet": snippet,
                     "score": round(-rank, 3),   # Get the positive floating number
                 }
-                for doc_id, engine_name, title, snippet, rank in rows
+                for doc_id, collection_name, title, snippet, rank in rows
             ]
         }
 
@@ -122,18 +147,18 @@ class ManualIndex:
         """
         with closing(self.connect()) as connection:
             row = connection.execute(
-                # doc_id, engine, title, body, source
-                "SELECT engine, title, source, body FROM sections WHERE doc_id = ?",
+                # doc_id, collection, title, body, source
+                "SELECT collection, title, source, body FROM sections WHERE doc_id = ?",
                 (doc_id,),
             ).fetchone()
         if row is None:
             raise ValueError(
                 f"Unknown doc_id: {doc_id}. Use an id returned by search_docs."
             )
-        engine, title, source, body = row
+        collection, title, source, body = row
         return {
             "doc_id": doc_id,
-            "engine": engine,
+            "collection": collection,
             "title": title,
             "source": source,
             "text": body[:MAX_SECTION_CHARS],

@@ -4,15 +4,15 @@ import argparse
 from contextlib import asynccontextmanager
 from pathlib import Path
 import subprocess
-from typing import Annotated, Any, Literal
+from typing import Any
 
 import anyio
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
-from pydantic import ConfigDict, Field, ValidationError
+from pydantic import ConfigDict, ValidationError
 
-from .manual_search import ManualIndex
+from .manual_search import ManualIndex, SearchCollection, SearchLimit, SearchQuery
 from .session_manager import SessionManager, list_cases as describe_cases
 from .setup_request import SetupRequest
 from .subprocess_client import EngineProcessError
@@ -97,7 +97,7 @@ def create_server(manager: SessionManager, manual_index: Path | None = None) -> 
             "ONNX has no pH output and ignores dt during inference. Engines are prebuilt. "
             "Call search_docs, then read_doc, to look up PFLOTRAN or CrunchFlow manual "
             "sections (input keywords, reaction types, units) instead of recalling them, and "
-            "Alquimia known issues (engine=alquimia) when a setting seems to have no effect "
+            "Alquimia known issues (collection=alquimia) when a setting seems to have no effect "
             "or a result looks wrong."
         ),
     )
@@ -183,19 +183,18 @@ def create_server(manager: SessionManager, manual_index: Path | None = None) -> 
 
     @server.tool(annotations=read_only)
     async def search_docs(
-        query: str,
-        engine: Literal["pflotran", "crunchflow", "alquimia"] | None = None,
-        limit: Annotated[int, Field(ge=1, le=20)] = 5,
+        query: SearchQuery,
+        collection: SearchCollection = None,
+        limit: SearchLimit = 5,
     ) -> dict[str, Any]:
         """Search the engine manuals and Alquimia known issues; returns ranked section snippets.
 
         Args:
-            query: Words or input keywords, e.g. "AQUEOUS_KINETICS rate constant".
-            engine: Restrict results to one engine's manual, or "alquimia" for
-                known interface issues and limitations.
+            query: Words or input-file keywords to match.
+            collection: Manual or known-issues collection to search; all when omitted.
             limit: Maximum number of sections returned.
         """
-        return await invoke(manuals.search, query, engine, limit)
+        return await invoke(manuals.search, query, collection, limit)
 
     @server.tool(annotations=read_only)
     async def read_doc(doc_id: str) -> dict[str, Any]:
