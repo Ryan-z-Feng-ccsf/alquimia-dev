@@ -116,6 +116,8 @@ def test_pdf_pages_become_sections(builder, monkeypatch, tmp_path):
 
 def test_search_ranks_keyword_sections(index_path):
     """Keywords with underscores and punctuation match their own section first."""
+    # The container server runs as a different user from the image build
+    assert index_path.stat().st_mode & 0o444 == 0o444
     manuals = ManualIndex(index_path)
     best = manuals.search("MINERAL_KINETICS rate constant?")["results"][0]
     assert best["title"] == "Chemistry > MINERAL_KINETICS"
