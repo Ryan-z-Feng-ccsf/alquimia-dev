@@ -1,0 +1,12 @@
+Condensed from: Steefel, C. I., CrunchFlow: Software for Modeling Multicomponent Reactive Flow and
+Transport, User's Manual, Lawrence Berkeley National Laboratory, October 12, 2009 (91 pages).
+https://www.netl.doe.gov/sites/default/files/netl-file/CrunchFlow-Manual.pdf
+
+Kept (manual pages): reaction rate laws (11-12), units (25-26), species choice, redox, acid-base,
+activity model, initialization and temperature (27-29), keyword blocks and units (31), RUNTIME
+chemistry keywords (35, 38-39, 42), PRIMARY_SPECIES through INITIAL_CONDITIONS (47-71),
+TEMPERATURE/set_temperature (85).
+Dropped: numerical methods, program structure, boundary conditions, discretization, output,
+transport, flow, porosity, PEST, erosion.
+Equations were transcribed from page images (the PDF's equation fonts have no Unicode mapping).
+The manual's older program names GIMRT/OS3D are written as CrunchFlow.
