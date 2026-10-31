@@ -9,9 +9,7 @@ import subprocess
 import tempfile
 
 # Must match Collection in src/mcp_alquimia/manual_search.py.
-from mcp_alquimia.manual_search import COLLECTIONS
-
-
+COLLECTIONS = ("pflotran", "crunchflow", "alquimia")
 SUFFIXES = (".rst", ".md", ".txt", ".pdf")
 
 # Sections longer than this are split on paragraph boundaries into numbered parts;
