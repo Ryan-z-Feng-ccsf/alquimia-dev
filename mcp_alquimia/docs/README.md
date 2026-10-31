@@ -5,13 +5,13 @@ into one SQLite FTS5 file, `build/mcp_alquimia/manual_index.sqlite`, which the s
 run time. The container image builds and ships the index; the sources themselves are not
 read by the server.
 
-| Directory | `engine` in search_docs | Contents |
+| Directory | `collection` in search_docs | Contents |
 |---|---|---|
 | `pflotran/` | `pflotran` | PFLOTRAN user guide CHEMISTRY and CONSTRAINT cards, geochemical database format, and the reactive transport theory guide, trimmed to what Alquimia uses (reStructuredText) |
 | `crunchflow/` | `crunchflow` | CrunchFlow user's manual (2009), condensed to the chemistry keyword blocks, database formats and concepts (Markdown) |
 | `alquimia/` | `alquimia` | Known issues and limitations of the engines as driven through Alquimia and this MCP server (Markdown) |
 
-Each engine directory has a `SOURCE` file recording where its content came from and what was
+The `pflotran/` and `crunchflow/` directories each have a `SOURCE` file recording where its content came from and what was
 removed. `pflotran/LICENSE` and `pflotran/COPYRIGHT` belong to the PFLOTRAN documentation.
 
 ## Rebuilding the index
