@@ -52,6 +52,6 @@ class SetupRequest(BaseModel):
     saturation: Saturation = 1.0
     initial_condition: InitialCondition | None = None
 
-    def overrides(self) -> dict[str, float | str]:
-        """Return only the native setup fields the caller set."""
-        return self.model_dump(exclude_none=True)
+    def physical(self) -> dict[str, float]:
+        """The six physical settings sent to the engine, defaults included."""
+        return self.model_dump(exclude={"initial_condition", "chemistry"})

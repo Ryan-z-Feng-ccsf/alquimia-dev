@@ -12,9 +12,10 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import ConfigDict, ValidationError
 
+from .case_registry import get_case
 from .manual_search import ManualIndex, SearchCollection, SearchLimit, SearchQuery
 from .session_manager import SessionManager, list_cases as describe_cases
-from .setup_request import SetupRequest
+from .setup_request import Engine, SetupRequest
 from .subprocess_client import EngineProcessError
 from .time_config_request import TimeConfigRequest
 
@@ -131,16 +132,22 @@ def create_server(manager: SessionManager, manual_index: Path | None = None) -> 
         return describe_cases(manager.repository)
 
     @server.tool(annotations=mutating)
-    async def setup(case: str, request: SetupRequest | None = None) -> dict[str, Any]:
-        """Stage a benchmark and create a session; returns session_id, applied setup and metadata.
+    async def setup(
+        case: str,
+        engine: Engine,
+        request: SetupRequest | None = None
+    ) -> dict[str, Any]:
+        """Stage a case for one engine and create a session; returns session_id, setup and metadata.
 
         Args:
             case: Identifier returned by list_cases.
-            request: Optional overrides of the benchmark's defaults; the schema lists the
-                allowed fields, units and ranges. Omitted fields keep the values shown by
-                list_cases. Invalid or unknown fields are rejected before any engine starts.
+            engine: Engine list_cases shows the case under.
+            request: Optional overrides; the schema lists the allowed fields, units and
+                ranges. Omitted fields keep the defaults shown by list_cases. chemistry
+                changes the initial condition (see get_chemistry). Invalid or unknown
+                fields are rejected before any engine starts.
         """
-        return await invoke(manager.setup, case, request)
+        return await invoke(manager.setup, case, engine, request)
 
     @server.tool(annotations=mutating)
     async def initialize(session_id: str) -> dict[str, Any]:
@@ -159,9 +166,8 @@ def create_server(manager: SessionManager, manual_index: Path | None = None) -> 
         Args:
             session_id: ID returned by setup, after initialize has succeeded.
             time_config: Optional overrides of the session's dt (seconds per step) and
-                max_steps (steps per call), which start at the cfg values shown by
-                list_cases. Set values persist for later react calls. ONNX only uses
-                dt for recorded time; it does not change model inference.
+                max_steps (steps per call), which start at the defaults shown by
+                list_cases. Set values persist for later react calls.
         """
         return await invoke(manager.react, session_id, time_config)
 
@@ -237,7 +243,8 @@ def main() -> None:
     parser.add_argument(
         "--max-sessions",
         type=int,
-        default=4
+        default=4,
+        help="Maximum simultaneously open sessions, each with one engine process"
     )
     args = parser.parse_args()
     repository = args.repository.resolve()
