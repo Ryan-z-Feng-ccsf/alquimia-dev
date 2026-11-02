@@ -1,41 +1,15 @@
 """Benchmark cases served by the MCP server, defined in code instead of driver cfg files.
 
-A case separates what to run (one native input per engine) from the physical
-environment shared by every engine in a session. Every case starts from the same
-defaults, which clients override per session. The batch_chem cfg files remain for
+A case names what to run (one native input per engine); the physical settings
+are SetupRequest's defaults, the same for every case, and clients override them
+per session. The batch_chem cfg files remain for
 the original C driver and are not read here.
 """
 
-from dataclasses import dataclass, field
-
-from pydantic import BaseModel, ConfigDict
-
-from .setup_request import Density, Porosity, Pressure, Saturation, Temperature, Volume
+from dataclasses import dataclass
 
 # Canonical engine names accepted by the native engine process, keyed by lowercase.
 ENGINES = {"pflotran": "PFloTran", "crunchflow": "CrunchFlow", "onnx": "ONNX"}
-
-
-class PhysicalCondition(BaseModel):
-    """Physical state applied to every engine of a session; defaults suit a batch benchmark.
-
-    Attributes:
-        density: Water density in kg/m^3.
-        porosity: Porosity, dimensionless.
-        temperature: Temperature in degrees Celsius.
-        pressure: Aqueous pressure in Pa.
-        volume: Material volume in m^3.
-        saturation: Water saturation, dimensionless.
-    """
-
-    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
-
-    density: Density = 997.16
-    porosity: Porosity = 0.5
-    temperature: Temperature = 25.0
-    pressure: Pressure = 101325.0
-    volume: Volume = 1.0
-    saturation: Saturation = 1.0
 
 
 @dataclass(frozen=True)
@@ -61,7 +35,6 @@ class CaseSpec:
         name: Identifier shown by list_cases.
         inputs: One input per engine the case can run on.
         description: What the system models, for the agent choosing a case.
-        physical: Physical state a session starts from.
         dt: Seconds per reaction step.
         max_steps: Reaction steps per react call.
     """
@@ -69,7 +42,6 @@ class CaseSpec:
     name: str
     inputs: tuple[EngineInput, ...]
     description: str = ""
-    physical: PhysicalCondition = field(default_factory=PhysicalCondition)
     dt: float = 86400.0
     max_steps: int = 50
 
@@ -101,7 +73,7 @@ def _pair(stem: str) -> tuple[EngineInput, ...]:
 
 
 # Inputs come from the benchmarks' pflotran (pc) and crunch (cc) driver cfgs; every case
-# uses the shared PhysicalCondition, dt and max_steps defaults.
+# uses the shared physical, dt and max_steps defaults.
 CASES = {
     case.name: case
     for case in (
