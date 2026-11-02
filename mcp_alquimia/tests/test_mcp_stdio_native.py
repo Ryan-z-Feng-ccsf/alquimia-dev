@@ -19,9 +19,8 @@ def anyio_backend():
     return "asyncio"
 
 
-@pytest.mark.parametrize("case", ["calcite-short-pc-pflotran", "calcite-short-cc-crunch", "ex8-nn-batch1"])
-async def test_stdio_native_lifecycle(repository_root, engine_process_executable, tmp_path, case):
-    """Discover tools, react twice, and verify cleanup after the client disconnects."""
+def server_parameters(repository_root, engine_process_executable, tmp_path):
+    """Launch the MCP server module over stdio against the prebuilt engine process."""
     env = dict(os.environ)
     env["PYTHONPATH"] = str(repository_root / "mcp_alquimia/src")
     parameters = StdioServerParameters(
@@ -35,9 +34,17 @@ async def test_stdio_native_lifecycle(repository_root, engine_process_executable
         env=env,
         cwd=tmp_path,
     )
+    return parameters
+
+
+@pytest.mark.parametrize("engine", ["PFloTran", "CrunchFlow"])
+async def test_stdio_native_lifecycle(repository_root, engine_process_executable, tmp_path, engine):
+    """Discover tools, react twice, and verify cleanup after the client disconnects."""
+    parameters = server_parameters(repository_root, engine_process_executable, tmp_path)
+    arguments = {"case": "calcite-short", "engine": engine}
     async with Client(parameters, read_timeout_seconds=30) as client:
         assert len((await client.list_tools()).tools) == 8
-        result = await client.call_tool("setup", {"case": case})
+        result = await client.call_tool("setup", arguments)
         assert not result.is_error, result
         # Parsed JSON
         setup = result.structured_content
@@ -56,12 +63,12 @@ async def test_stdio_native_lifecycle(repository_root, engine_process_executable
         assert result.structured_content["current_time"] == 5
         polled = await client.call_tool("get_results", {"session_id": session_id})
         assert polled.structured_content["state"] == final
-        assert (final["pH"] is None) == (case == "ex8-nn-batch1")
+        assert final["pH"] is not None
         # Explicit close is exercised through the real transport too. Leave a
         # second session open to exercise EOF/lifespan cleanup below.
         closed = await client.call_tool("close", {"session_id": session_id})
         assert not closed.is_error, closed
-        leftover = await client.call_tool("setup", {"case": case})
+        leftover = await client.call_tool("setup", arguments)
         assert not leftover.is_error, leftover
     run_dir = Path(setup["run_dir"])
     saved = json.loads((run_dir / "simulation_results.json").read_text())
