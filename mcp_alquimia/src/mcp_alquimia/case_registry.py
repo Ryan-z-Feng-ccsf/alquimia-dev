@@ -6,7 +6,6 @@ defaults, which clients override per session. The batch_chem cfg files remain fo
 the original C driver and are not read here.
 """
 
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from pydantic import BaseModel, ConfigDict
@@ -60,9 +59,9 @@ class CaseSpec:
 
     Attributes:
         name: Identifier shown by list_cases.
-        inputs: Engine inputs, in the order a session runs them.
+        inputs: One input per engine the case can run on.
         description: What the system models, for the agent choosing a case.
-        physical: Physical state shared by the engines.
+        physical: Physical state a session starts from.
         dt: Seconds per reaction step.
         max_steps: Reaction steps per react call.
     """
@@ -76,28 +75,21 @@ class CaseSpec:
 
     @property
     def engines(self) -> list[str]:
-        """Engine names in run order."""
+        """Names of the engines the case can run on."""
         return [engine_input.engine for engine_input in self.inputs]
 
-    def select(self, engines: Sequence[str] | None = None) -> tuple[EngineInput, ...]:
-        """Return the inputs for the requested engines, or all of them when omitted.
+    def input_for(self, engine: str) -> EngineInput:
+        """Return the case's input for an engine; the name is matched case-insensitively.
 
         Raises:
-            ValueError: An engine is repeated, unknown, or not provided by this case.
+            ValueError: The case has no input for the engine.
         """
-        if engines is None:
-            return self.inputs
-        names = [ENGINES.get(engine.lower(), engine) for engine in engines]
-        if not names or len(set(names)) != len(names):
-            raise ValueError("engines must name each engine at most once")
-        by_engine = {engine_input.engine: engine_input for engine_input in self.inputs}
-        unknown = [name for name in names if name not in by_engine]
-        if unknown:
-            raise ValueError(
-                f"Case {self.name!r} has no {', '.join(unknown)} input; "
-                f"available: {', '.join(self.engines)}"
-            )
-        return tuple(by_engine[name] for name in names)
+        name = ENGINES.get(engine.lower(), engine)
+        for engine_input in self.inputs:
+            if engine_input.engine == name:
+                return engine_input
+        raise ValueError(
+            f"Case {self.name!r} has no {engine} input; available: {', '.join(self.engines)}")
 
 
 def _pair(stem: str) -> tuple[EngineInput, ...]:
