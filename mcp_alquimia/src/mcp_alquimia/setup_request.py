@@ -1,6 +1,6 @@
 """Typed, validated overrides an agent may send with a setup request."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,9 +23,18 @@ InitialCondition = Annotated[
         description="Name of an initial condition defined in the case's input file."),
 ]
 
-class SetupRequest(BaseModel):
-    """Overrides for a case's benchmark defaults; omitted fields keep the cfg values.
+Engine = Annotated[
+    Literal["PFloTran", "CrunchFlow"],
+    Field(description="Chemistry engine, spelled exactly as list_cases shows it."),
+]
+Name = Annotated[str, Field(min_length=1, max_length=64)]
+Finite = Annotated[float, Field(allow_inf_nan=False)]
 
+
+class SetupRequest(BaseModel):
+    """Session settings; omitted fields keep the defaults shown in this schema.
+
+    The physical defaults suit a batch benchmark and are the same for every case.
     The input file and engine are deliberately not fields, so a request can never
     point the engine at another file. Time stepping (dt, max_steps) belongs to
     TimeConfigRequest, sent with react. Unknown fields, booleans or strings in place
@@ -35,12 +44,12 @@ class SetupRequest(BaseModel):
     # Reject unknown fields and disable automatic type conversion
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    density: Density | None = None
-    porosity: Porosity | None = None
-    temperature: Temperature | None = None
-    pressure: Pressure | None = None
-    volume: Volume | None = None
-    saturation: Saturation | None = None
+    density: Density = 997.16
+    porosity: Porosity = 0.5
+    temperature: Temperature = 25.0
+    pressure: Pressure = 101325.0
+    volume: Volume = 1.0
+    saturation: Saturation = 1.0
     initial_condition: InitialCondition | None = None
 
     def overrides(self) -> dict[str, float | str]:
