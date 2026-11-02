@@ -10,8 +10,8 @@ import threading
 from typing import Any
 import uuid
 
-from .case_catalog import (
-    describe_case, discover_cases, get_case, default_time_config, stage_case)
+from .case_catalog import list_cases as describe_cases, stage_case
+from .case_registry import get_case
 from .setup_request import SetupRequest
 from .subprocess_client import AlquimiaEngineProcess
 from .time_config_request import TimeConfigRequest
@@ -21,16 +21,15 @@ LOGGER = logging.getLogger(__name__)
 
 
 def list_cases(repository: str | Path) -> dict[str, Any]:
-    """Describe every benchmark found in the repository without starting an engine.
+    """Describe every registered case without starting an engine.
 
     Args:
-        repository: Alquimia checkout whose batch-chemistry cfg files are scanned.
+        repository: Alquimia checkout supplying the benchmark inputs.
 
     Returns:
-        A "cases" list with each case's engine, input and database files, default
-        settings, and whether all of its files are present.
+        The shared defaults, each engine's case names, and each case's description.
     """
-    return {"cases": [describe_case(spec) for spec in discover_cases(repository).values()]}
+    return describe_cases(repository)
 
 
 def write_json(path: Path, value: dict[str, Any]) -> None:
@@ -45,6 +44,7 @@ class SimulationSession:
     """Native process, lifecycle, and history belonging to one session ID."""
 
     case: str
+    engine: str
     run_dir: Path
     process: AlquimiaEngineProcess
     metadata: dict[str, Any]
@@ -93,46 +93,55 @@ class SessionManager:
         self._sessions: dict[str, SimulationSession] = {}
         self._lock = threading.RLock()
 
-    def setup(self, case: str, request: SetupRequest | None = None) -> dict[str, Any]:
-        """Stage a discovered case and start a persistent engine process.
+    def setup(
+        self,
+        case: str,
+        engine: str,
+        request: SetupRequest | None = None
+    ) -> dict[str, Any]:
+        """Stage one engine's input for a case and start a persistent engine process.
 
         Args:
             case: Identifier from list_cases.
+            engine: Engine to run, one list_cases shows for the case.
             request: Optional validated overrides of the case's setup fields.
-                Omitted fields keep the benchmark's values.
+                Omitted fields keep the defaults shown by list_cases.
 
         Returns:
-            Session ID, artifact directory, and native metadata. Initialization
-            is a separate operation; setup does not perform a reaction.
+            Session ID, artifact directory, setup arguments and native metadata.
+            Initialization is a separate operation; setup does not perform a reaction.
 
         Raises:
-            ValueError: The case is unknown, its default initial condition is undefined
-                and the request supplies none, or the session limit is reached.
-            OSError: Runtime or assets (cfg parameters) are missing, or artifact I/O fails.
+            ValueError: The case or engine is unknown, the request does not fit the
+                engine's input, or the session limit is reached.
+            OSError: The engine process or inputs are missing, or artifact I/O fails.
             EngineProcessError: Native startup or setup fails.
         """
         with self._lock:
-            spec = get_case(self.repository, case)
+            spec = get_case(case)
+            # Get the specific .in file
+            engine_input = spec.input_for(engine)
             if len(self._sessions) >= self.max_sessions:
                 raise ValueError("Session limit reached; close a session before setup")
             if not self.executable.is_file() or not os.access(self.executable, os.X_OK):
                 raise FileNotFoundError(
                     f"Engine process is missing or not executable: {self.executable}. "
                     "Build it explicitly with build_tools/build_alquimia_engine_process.py.")
-            
+
             session_id = uuid.uuid4().hex
             run_dir = self.run_root / session_id
             process = None
             try:
-                setup = stage_case(spec, run_dir, request)
+                setup = stage_case(self.repository, spec, engine_input, run_dir, request)
                 # Starting dt and max_steps; react's TimeConfigRequest may change them
-                time_step_config = default_time_config(spec)
+                time_step_config = {"dt": spec.dt, "max_steps": spec.max_steps}
                 write_json(
-                    run_dir / "simulation_request.json", 
+                    run_dir / "simulation_request.json",
                     {
                         "session_id": session_id,
                         "case": spec.name,
-                        "request": request.model_dump(exclude_none=True) if request else {},
+                        "engine": engine_input.engine,
+                        "request": request.model_dump(exclude_unset=True) if request else {},
                         "setup": setup,
                         "simulation": time_step_config,
                         "engine_process": str(self.executable),
@@ -141,7 +150,8 @@ class SessionManager:
                 process = AlquimiaEngineProcess(self.executable, run_dir, self.timeout)
                 metadata = process.request("setup", **setup)
                 session = SimulationSession(
-                    spec.name, run_dir, process, metadata, time_step_config["dt"], time_step_config["max_steps"])
+                    spec.name, engine_input.engine, run_dir, process, metadata,
+                    time_step_config["dt"], time_step_config["max_steps"])
                 self._save(session_id, session, "ready")
                 self._sessions[session_id] = session
             except Exception as error:
@@ -150,6 +160,7 @@ class SessionManager:
             return {
                 "session_id": session_id,
                 "case": spec.name,
+                "engine": engine_input.engine,
                 "run_dir": str(run_dir),
                 "setup": setup,
                 "simulation": time_step_config,
@@ -157,7 +168,7 @@ class SessionManager:
             }
 
     def initialize(self, session_id: str) -> dict[str, Any]:
-        """Apply the benchmark's named initial condition once and return its state."""
+        """Apply the case's initial condition once and return its state."""
         return self._request(session_id, "initialize")
 
     def react(
@@ -172,13 +183,11 @@ class SessionManager:
             time_config: Optional validated overrides of the session's dt (seconds)
                 and max_steps (steps per call). Set values persist for later calls
                 once the engine completes them; omitted fields keep the session's
-                current values (initially the cfg's).
+                current values (initially the defaults).
 
         Returns:
             status "success", time_step (dt in seconds), steps_executed,
             current_time (seconds since initialization), and the final state.
-
-        ONNX ignores dt during inference; its recorded time still advances.
         """
         result = self._request(
             session_id, "react", time_config=time_config or TimeConfigRequest())
@@ -270,10 +279,11 @@ class SessionManager:
     def _save(session_id: str, session: SimulationSession, status: str) -> None:
         """Persist the full history and latest snapshot after each state change."""
         write_json(
-            session.run_dir / "simulation_results.json", 
+            session.run_dir / "simulation_results.json",
             {
                 "session_id": session_id,
                 "case": session.case,
+                "engine": session.engine,
                 "status": status,
                 "metadata": session.metadata,
                 "history": session.history,
@@ -297,7 +307,7 @@ class SessionManager:
         if run_dir.is_dir():
             try:
                 write_json(
-                    run_dir / "simulation_failure.json", 
+                    run_dir / "simulation_failure.json",
                     {
                         "operation": operation,
                         "error": str(error),
