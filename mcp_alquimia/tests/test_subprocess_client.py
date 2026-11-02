@@ -36,7 +36,10 @@ def test_missing_companion_asset_does_not_stage(tmp_path, engine_case):
     """Require the database/model before creating a partially staged run."""
     source = tmp_path / "repository" / engine_case.input_path
     source.parent.mkdir(parents=True)
-    source.write_text("placeholder")
+    # An input whose referenced database or model was not copied alongside it
+    source.write_text({"PFloTran": "DATABASE ./calcite.dat\n",
+                       "CrunchFlow": "database calcite.dbs\n",
+                       "ONNX": '{"model": "ex8_nn_batch1.onnx"}'}[engine_case.engine])
     run_dir = tmp_path / "run"
     with pytest.raises(FileNotFoundError):
         engine_case.prepare(tmp_path / "repository", run_dir)
