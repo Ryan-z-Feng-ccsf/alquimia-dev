@@ -4,7 +4,7 @@ import json
 import math
 from pathlib import Path
 
-from .subprocess_client import AlquimiaEngineProcess
+from mcp_alquimia.subprocess_client import AlquimiaEngineProcess
 
 
 def run_case(

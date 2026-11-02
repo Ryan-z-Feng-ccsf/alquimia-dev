@@ -23,7 +23,7 @@ build-backend = "uv_build"
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "scripts"]
 addopts = "-ra --strict-markers"
 markers = [
     "native: requires the precompiled engine process and installed Alquimia chemistry runtime",

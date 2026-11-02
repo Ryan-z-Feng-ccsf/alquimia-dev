@@ -4,10 +4,11 @@ import argparse
 import json
 from pathlib import Path
 
-from .case_catalog import stage_case
-from .case_registry import CaseSpec, get_case
-from .case_runner import run_case
-from .setup_request import SetupRequest
+from mcp_alquimia.case_catalog import stage_case
+from mcp_alquimia.case_registry import CaseSpec, get_case
+from mcp_alquimia.setup_request import SetupRequest
+
+from case_runner import run_case
 
 
 def _resolve(case: str | CaseSpec, engine: str):
@@ -102,7 +103,7 @@ def main():
         SystemExit: Help is requested, arguments are invalid, or a handled run
             failure is reported with a nonzero exit status.
     """
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case", required=True, help="Case name (see list_cases)")
     parser.add_argument("--engine", required=True,
