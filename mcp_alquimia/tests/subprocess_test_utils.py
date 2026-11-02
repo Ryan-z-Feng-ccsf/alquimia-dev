@@ -9,7 +9,16 @@ import subprocess
 
 import pytest
 
+from mcp_alquimia.case_registry import CaseSpec, EngineInput, get_case
 from mcp_alquimia.run_batch_chem_case import prepare_case, run_batch_chem_case
+from mcp_alquimia.setup_request import SetupRequest
+
+# ONNX models are not served by list_cases; this mirrors ex8-nn-batch1.cfg for tests.
+ONNX_EX8 = CaseSpec(
+    "ex8-nn-batch1",
+    (EngineInput("ONNX", "../../models/ex8_nn/ex8_nn_batch1.json"),),
+    dt=864000.0,
+    max_steps=100)
 
 
 @dataclass(frozen=True)
@@ -18,38 +27,53 @@ class EngineCase:
 
     Attributes:
         name: Readable pytest case ID.
-        case: batch_chem case name, also the cfg stem for the original driver.
+        case: Registered case name or test-defined case.
+        engine: Engine of the case to run.
+        config: Original-driver cfg stem under benchmarks/batch_chem.
         max_steps: Expected default number of reaction steps.
         input_path: Repository-relative input to stage without its companion asset.
+        request: Settings the benchmark needs beyond the defaults.
     """
 
     name: str
-    case: str
+    case: str | CaseSpec
+    engine: str
+    config: str
     max_steps: int
     input_path: str
+    request: SetupRequest | None = None
+
+    @property
+    def spec(self):
+        """The case definition, registered or test-defined."""
+        return get_case(self.case) if isinstance(self.case, str) else self.case
 
     @property
     def prepare(self):
         """Stage inputs and return native setup arguments: (repository, run_dir)."""
-        return functools.partial(prepare_case, case=self.case)
+        return functools.partial(
+            prepare_case, case=self.case, engine=self.engine, request=self.request)
 
     @property
     def run(self):
         """Execute the benchmark: (repository, executable, run_dir, **options)."""
-        return functools.partial(run_batch_chem_case, case=self.case)
+        return functools.partial(
+            run_batch_chem_case, case=self.case, engine=self.engine, request=self.request)
 
     @property
     def config_name(self):
         """Original-driver config under benchmarks/batch_chem."""
-        return f"{self.case}.cfg"
+        return f"{self.config}.cfg"
 
 
 ENGINE_CASES = (
-    EngineCase("pflotran-calcite", "calcite-short-pc-pflotran", 50,
+    EngineCase("pflotran-calcite", "calcite-short", "PFloTran", "calcite-short-pc-pflotran", 50,
                "benchmarks/batch_chem/calcite-short-pflotran.in"),
-    EngineCase("crunchflow-calcite", "calcite-short-cc-crunch", 50,
+    EngineCase("crunchflow-calcite", "calcite-short", "CrunchFlow", "calcite-short-cc-crunch", 50,
                "benchmarks/batch_chem/calcite-short-crunch.in"),
-    EngineCase("onnx-ex8", "ex8-nn-batch1", 100, "models/ex8_nn/ex8_nn_batch1.json"),
+    # ex8-nn-batch1.cfg runs at porosity 0.25
+    EngineCase("onnx-ex8", ONNX_EX8, "ONNX", "ex8-nn-batch1", 100,
+               "models/ex8_nn/ex8_nn_batch1.json", SetupRequest(porosity=0.25)),
 )
 
 
@@ -74,6 +98,13 @@ def run_original_driver(engine_case, repository, executable, run_dir):
     config = configparser.ConfigParser()
     config.read(repository / "benchmarks/batch_chem" / engine_case.config_name)
     config["chemistry"]["input_file"] = setup["input_file"]
+    # The driver must see the same physical state and time stepping as the engine process
+    config["simulation"]["timestep"] = repr(engine_case.spec.dt)
+    config["simulation"]["max_steps"] = str(engine_case.spec.max_steps)
+    for section, keys in (("state", ("density", "porosity", "temperature", "pressure")),
+                          ("material", ("volume", "saturation"))):
+        for key in keys:
+            config[section][key] = repr(setup[key])
     config["output"] = {"type": "python", "filename": "batch_chem_output.py"}
     # Write the config file
     with (run_dir / "batch_chem.cfg").open("w") as stream:

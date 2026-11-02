@@ -7,7 +7,7 @@ import pytest
 
 from mcp_alquimia.run_batch_chem_case import prepare_case
 from mcp_alquimia.subprocess_client import AlquimiaEngineProcess, EngineCommandError
-from subprocess_test_utils import assert_history_matches_driver, run_original_driver
+from subprocess_test_utils import ONNX_EX8, assert_history_matches_driver, run_original_driver
 
 
 pytestmark = pytest.mark.native
@@ -130,7 +130,7 @@ def test_protocol_errors_shutdown(
     """Reject invalid engines and command order before native initialization."""
     run_dir = tmp_path / "protocol"
     if operation == "setup":
-        arguments = {**prepare_case(repository_root, run_dir, "calcite-short-pc-pflotran"), **arguments}
+        arguments = {**prepare_case(repository_root, run_dir, "calcite-short", "PFloTran"), **arguments}
     else:
         run_dir.mkdir()
     with AlquimiaEngineProcess(engine_process_executable, run_dir) as process:
@@ -183,7 +183,7 @@ def test_malformed_protocol_is_reported(engine_process_executable, tmp_path):
 def test_onnx_inference_failure_is_reported(repository_root, engine_process_executable, tmp_path):
     """ONNX inference errors remain fatal despite having no convergence flag."""
     run_dir = tmp_path / "runtime_failure"
-    setup = prepare_case(repository_root, run_dir, "ex8-nn-batch1")
+    setup = prepare_case(repository_root, run_dir, ONNX_EX8, "ONNX")
     source = repository_root / "unit_tests/onnx_test_cases/deterministic"
     config = json.loads((source / "runtime_failure.json").read_text())
     config["conditions"] = {"initial": {"runtime_input_0": 1, "runtime_input_1": 2}}
