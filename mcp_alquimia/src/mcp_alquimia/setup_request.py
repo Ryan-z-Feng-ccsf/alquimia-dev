@@ -31,6 +31,39 @@ Name = Annotated[str, Field(min_length=1, max_length=64)]
 Finite = Annotated[float, Field(allow_inf_nan=False)]
 
 
+class MineralChange(BaseModel):
+    """New values for one mineral of the initial condition; omitted fields are kept."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    volume_fraction: Annotated[float, Field(
+        ge=0, le=1, allow_inf_nan=False,
+        description="Mineral volume fraction, m^3 mineral/m^3 bulk.")] | None = None
+    surface_area: Annotated[float, Field(
+        ge=0, allow_inf_nan=False,
+        description="Bulk reactive surface area, m^2 mineral/m^3 bulk.")] | None = None
+
+
+class ChemistryRequest(BaseModel):
+    """Changes to the initial condition and mineral rates, written into the staged input.
+
+    Values use engine-independent units and are converted to each engine's input
+    units, so one request means the same on every engine of a session. Names and
+    current values come from get_chemistry; a constraint's type is never changed.
+    """
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    aqueous: dict[Name, Finite] = Field(
+        default_factory=dict,
+        description="Species to new constraint value, in the units get_chemistry reports for "
+                    "its constraint: mol/kg water (total, free), pH, or bar (gas).")
+    minerals: dict[Name, MineralChange] = Field(default_factory=dict)
+    rates: dict[Name, Annotated[float, Field(gt=0, allow_inf_nan=False)]] = Field(
+        default_factory=dict,
+        description="Mineral to kinetic rate constant in mol/m^2/s (not log10).")
+
+
 class SetupRequest(BaseModel):
     """Session settings; omitted fields keep the defaults shown in this schema.
 
@@ -51,6 +84,7 @@ class SetupRequest(BaseModel):
     volume: Volume = 1.0
     saturation: Saturation = 1.0
     initial_condition: InitialCondition | None = None
+    chemistry: ChemistryRequest | None = None
 
     def physical(self) -> dict[str, float]:
         """The six physical settings sent to the engine, defaults included."""

@@ -12,6 +12,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import ConfigDict, ValidationError
 
+from .case_catalog import get_chemistry as describe_chemistry
 from .case_registry import get_case
 from .manual_search import ManualIndex, SearchCollection, SearchLimit, SearchQuery
 from .session_manager import SessionManager, list_cases as describe_cases
@@ -88,14 +89,19 @@ def create_server(manager: SessionManager, manual_index: Path | None = None) -> 
             "Scenarios: calcite dissolution/precipitation (incl. CO2), CH4-O2 oxidation, "
             "general aqueous kinetics, ion exchange, sorption isotherms, surface complexation "
             "and microbial reactions. "
-            "Call list_cases, then setup for a case, optionally with a request object overriding its settings. Retain its session_id. "
+            "Call list_cases; it shows each engine's cases. Pass that engine with the case to "
+            "get_chemistry and setup, and retain setup's session_id. A session runs one engine; "
+            "to compare engines, run one session per engine with the same request and "
+            "time_config. setup's optional request overrides the default physical settings "
+            "and, through request.chemistry, initial concentrations, pH, gas pressures, "
+            "mineral amounts and rate constants; call get_chemistry first for the valid names, "
+            "current values and units. "
             "Call initialize once, then react: each call runs max_steps reaction steps of dt "
-            "seconds in the engine, defaulting to the case's cfg values; an optional time_config "
-            "object overrides dt and max_steps for that and later calls. Call get_results "
-            "to inspect state, and close when finished. Each session has an isolated "
-            "native process and artifact directory. Failed native calls end that session; "
-            "create a new one. Chemistry constraints come from the case input; physical settings default to the benchmark and may be overridden in setup. "
-            "ONNX has no pH output and ignores dt during inference. Engines are prebuilt. "
+            "seconds in the engine, starting from the defaults; an optional time_config object "
+            "overrides dt and max_steps for that and later calls. Call get_results to inspect "
+            "state, and close when finished. Each session has an isolated native process and "
+            "artifact directory. Failed native calls end that session; create a new one. "
+            "Engines are prebuilt. "
             "Call search_docs, then read_doc, to look up PFLOTRAN or CrunchFlow manual "
             "sections (input keywords, reaction types, units) instead of recalling them, and "
             "Alquimia known issues (collection=alquimia) when a setting seems to have no effect "
@@ -130,6 +136,23 @@ def create_server(manager: SessionManager, manual_index: Path | None = None) -> 
     async def list_cases() -> dict[str, Any]:
         """List supported cases and benchmark defaults without launching engines."""
         return describe_cases(manager.repository)
+
+    @server.tool(annotations=read_only)
+    async def get_chemistry(case: str, engine: Engine) -> dict[str, Any]:
+        """Show an engine input's initial chemistry: species constraints, minerals and rates.
+
+        Values use the listed units, the same on every engine; a null value cannot be
+        changed (e.g. charge balance or mineral equilibrium). Names and values are what
+        setup's request.chemistry accepts for this case and engine.
+
+        Args:
+            case: Identifier returned by list_cases.
+            engine: Engine list_cases shows the case under.
+        """
+        # Use lambda to run get_case() in a worker thread
+        # preventing it from blocking the main event loop       
+        return await invoke(
+            lambda: describe_chemistry(manager.repository, get_case(case), engine))
 
     @server.tool(annotations=mutating)
     async def setup(

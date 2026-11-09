@@ -171,71 +171,25 @@ def build_setup(
     }
 
 
-def get_case(repository: str | Path, case_name: str) -> CaseSpec:
-    """Look up one discovered case by its identifier.
+def get_chemistry(repository: str | Path, spec: CaseSpec, engine: str) -> dict[str, Any]:
+    """Summarize one engine input's default initial chemistry in engine-independent units.
 
     Raises:
-        ValueError: The identifier is not a discovered case, or its cfg is malformed.
+        ValueError: The case has no input for the engine, or the engine cannot be edited.
+        OSError: The input cannot be read.
     """
-    cfg_path = case_cfg_path(repository, case_name)
-    if not cfg_path.is_file():
-        raise ValueError(f"Unknown case {case_name!r}; call list_cases")
-    try:
-        return read_case(cfg_path)
-    except (configparser.Error, KeyError, ValueError, OSError) as error:
-        raise ValueError(f"Case {case_name!r} has an unreadable cfg: {error!r}") from error
-
-
-def describe_case(spec: CaseSpec) -> dict[str, Any]:
-    """Summarize a case for list_cases without starting an engine."""
-    missing = spec.missing_files
+    engine_input = spec.input_for(engine)
     return {
         "case": spec.name,
-        "engine": spec.engine,
-        "description": spec.description,
-        "input_file": spec.input_file.name,
-        "database_files": list(spec.database_files),
-        "initial_condition": spec.initial_condition,
-        "physical_condition": dict(spec.physical_condition),
-        "default_max_steps": spec.default_max_steps,
-        "default_dt": spec.default_dt,
-        "dt_units": "s",
-        "available": not missing,
-        "missing_files": missing,
-        "requires_initial_condition": spec.undefined_condition,
-        "notes": " ".join(filter(None, [
-            "Inference ignores dt; pH is null." if spec.engine == "ONNX" else "",
-            f"The default condition {spec.initial_condition!r} is only a name in the cfg and is "
-            "not defined in the input; setup needs request.initial_condition, e.g. 'initial'."
-            if spec.undefined_condition else "",
-        ])),
+        "engine": engine_input.engine,
+        "units": UNITS,
+        **read_chemistry(
+            input_path(repository, engine_input),
+            engine_input.engine,
+            engine_input.conditions[0],
+            SetupRequest().density,
+        ),
     }
-
-
-def build_setup(spec: CaseSpec, request: SetupRequest | None = None) -> dict[str, Any]:
-    """Merge a validated request over the case defaults into native setup arguments.
-
-    Args:
-        spec: Case supplying the defaults.
-        request: Optional overrides, already validated by SetupRequest. Physical
-            settings are density (kg/m^3), porosity, temperature (degC), pressure (Pa),
-            volume (m^3) and saturation; initial_condition names a condition in the input.
-
-    Returns:
-        The engine, input file name, initial condition, and the six numeric settings.
-    """
-    return {
-        "engine": spec.engine,
-        "input_file": spec.input_file.name,
-        "initial_condition": spec.initial_condition,
-        **spec.physical_condition,
-        **(request.overrides() if request else {}),
-    }
-
-
-def default_time_config(spec: CaseSpec) -> dict[str, Any]:
-    """Return the case's cfg dt (seconds) and max_steps, the session's starting values."""
-    return {"dt": spec.default_dt, "max_steps": spec.default_max_steps}
 
 
 def stage_case(
@@ -289,4 +243,13 @@ def stage_case(
         # Databases may sit in a subdirectory of the input's directory
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source / name, destination)
+    if request and request.chemistry:
+        # names[0]: .in file
+        patch_chemistry(
+            run_dir / names[0],
+            engine_input.engine,
+            setup["initial_condition"],
+            request.chemistry,
+            setup["density"]
+        )
     return setup
