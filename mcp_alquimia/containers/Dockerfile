@@ -102,9 +102,8 @@ COPY --from=server-build /opt/alquimia/build/mcp_alquimia/bin/ build/mcp_alquimi
 COPY --from=server-build /opt/alquimia/build/mcp_alquimia/manual_index.sqlite build/mcp_alquimia/
 COPY --from=server-build /opt/alquimia/venv/ venv/
 
-# Necessary .cfg / .in / .dbs / .dat / .dbsx
-COPY --from=server-build /opt/alquimia/benchmarks/batch_chem/*.cfg \
-     /opt/alquimia/benchmarks/batch_chem/*.in \
+# Necessary .in / .dbs / .dat / .dbsx
+COPY --from=server-build /opt/alquimia/benchmarks/batch_chem/*.in \
      /opt/alquimia/benchmarks/batch_chem/*.dbs \
      /opt/alquimia/benchmarks/batch_chem/*.dat \
      /opt/alquimia/benchmarks/batch_chem/*.dbsx benchmarks/batch_chem/
