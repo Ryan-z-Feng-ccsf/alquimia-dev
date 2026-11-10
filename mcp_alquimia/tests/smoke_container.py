@@ -40,7 +40,7 @@ async def smoke(image: str, docker_host: str | None, output: Path) -> dict:
     async with Client(StdioServerParameters(command=sys.executable, args=args),
                       read_timeout_seconds=60) as client:
         tools = await client.list_tools()
-        assert len(tools.tools) == 8
+        assert len(tools.tools) == 9
         # The image ships the knowledge base index for every source
         for collection in ("pflotran", "crunchflow", "alquimia"):
             found = await client.call_tool(
@@ -49,46 +49,48 @@ async def smoke(image: str, docker_host: str | None, output: Path) -> dict:
             hit, = found.structured_content["results"]
             section = await client.call_tool("read_doc", {"doc_id": hit["doc_id"]})
             assert not section.is_error and section.structured_content["text"], section
-        # 3 different engines
         cases = await client.call_tool("list_cases")
         assert not cases.is_error, cases
-        for case in cases.structured_content["cases"]:
-            # An *-ac-* case names a driver_ic condition its input does not define,
-            # so the client must pick one that exists.
-            request = {}
-            if case["requires_initial_condition"]:
-                request["initial_condition"] = "initial"
-            setup = await client.call_tool("setup", {"case": case["case"], "request": request})
-            assert not setup.is_error, setup
-            session_id = setup.structured_content["session_id"]
-            initialized = await client.call_tool("initialize", {"session_id": session_id})
-            assert not initialized.is_error, initialized
-            # A looped request inside the engine, then a single step
-            for time_config in ({"dt": 1.0, "max_steps": 2}, {"dt": 3.0, "max_steps": 1}):
-                result = await client.call_tool(
-                    "react", {"session_id": session_id, "time_config": time_config})
-                assert not result.is_error, result
-                assert result.structured_content["status"] == "success"
-                assert result.structured_content["steps_executed"] == time_config["max_steps"]
-            final = result.structured_content["state"]
-            assert (final["time"], final["completed_steps"]) == (5, 3)
-            assert result.structured_content["current_time"] == 5
-            polled = await client.call_tool("get_results", {"session_id": session_id})
-            assert not polled.is_error, polled
-            assert polled.structured_content["state"] == final
-            closed = await client.call_tool("close", {"session_id": session_id})
-            assert not closed.is_error, closed
-            saved = json.loads((output / "runs" / session_id / "simulation_results.json").read_text())
-            assert saved["status"] == "closed" and saved["final"] == final
-            summary["cases"].append(
-                {
-                    "case": case["case"],
-                    "session_id": session_id,
-                    "final": final
-                }
-            )
+        listing = cases.structured_content
+        for engine, names in listing["engines"].items():
+            for case in names:
+                arguments = {"case": case, "engine": engine}
+                chemistry = await client.call_tool("get_chemistry", arguments)
+                assert not chemistry.is_error, chemistry
+                setup = await client.call_tool("setup", arguments)
+                assert not setup.is_error, setup
+                session_id = setup.structured_content["session_id"]
+                initialized = await client.call_tool("initialize", {"session_id": session_id})
+                assert not initialized.is_error, initialized
+                # A looped request inside the engine, then a single step
+                for time_config in ({"dt": 1.0, "max_steps": 2}, {"dt": 3.0, "max_steps": 1}):
+                    result = await client.call_tool(
+                        "react", {"session_id": session_id, "time_config": time_config})
+                    assert not result.is_error, result
+                    assert result.structured_content["status"] == "success"
+                    assert result.structured_content["steps_executed"] == time_config["max_steps"]
+                final = result.structured_content["state"]
+                assert (final["time"], final["completed_steps"]) == (5, 3)
+                assert result.structured_content["current_time"] == 5
+                polled = await client.call_tool("get_results", {"session_id": session_id})
+                assert not polled.is_error, polled
+                assert polled.structured_content["state"] == final
+                closed = await client.call_tool("close", {"session_id": session_id})
+                assert not closed.is_error, closed
+                saved = json.loads(
+                    (output / "runs" / session_id / "simulation_results.json").read_text())
+                assert saved["status"] == "closed" and saved["final"] == final
+                summary["cases"].append(
+                    {
+                        "case": case,
+                        "engine": engine,
+                        "session_id": session_id,
+                        "final": final
+                    }
+                )
 
-        leftover = await client.call_tool("setup", {"case": "calcite-short-pc-pflotran"})
+        leftover = await client.call_tool(
+            "setup", {"case": "calcite-short", "engine": "PFloTran"})
         assert not leftover.is_error, leftover
         leftover_id = leftover.structured_content["session_id"]
     # Test the forcily exit (close all the sessions)
@@ -111,7 +113,7 @@ def main() -> None:
     output = Path(tempfile.mkdtemp(prefix="smoke-", dir=reports))
     summary = anyio.run(smoke, args.image, args.docker_host, output)
     (output / "smoke_report.json").write_text(json.dumps(summary, indent=2) + "\n")
-    print(f"All three engines passed container MCP smoke tests. Report: {output}")
+    print(f"Every case passed container MCP smoke tests. Report: {output}")
 
 
 if __name__ == "__main__":
