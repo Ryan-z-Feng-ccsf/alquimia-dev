@@ -114,6 +114,46 @@ def test_reference_escaping_the_input_directory_is_rejected(tmp_path):
         stage_case(tmp_path, CASE, CASE.inputs[0], tmp_path / "runs")
 
 
+def test_staged_chemistry_is_patched_and_benchmark_untouched(repository_root, tmp_path):
+    """Chemistry changes land in the staged copy only, in each engine's own units."""
+    spec = get_case("calcite-short")
+    benchmark = (repository_root / "benchmarks/batch_chem/calcite-short-pflotran.in").read_text()
+    request = SetupRequest.model_validate(
+        {"chemistry": {"aqueous": {"Ca++": 1e-3}, "rates": {"Calcite": 1e-8}}})
+    for engine_input in spec.inputs:
+        stage_case(
+            repository_root,
+            spec,
+            engine_input,
+            tmp_path / engine_input.engine,
+            request
+        )
+    pflotran = (tmp_path / "PFloTran/calcite-short-pflotran.in").read_text()
+    crunchflow = (tmp_path / "CrunchFlow/calcite-short-crunch.in").read_text()
+    # PFLOTRAN reads mol/L: 1e-3 mol/kg * 0.99716 kg/L; and mol/cm^2-sec
+    assert "Ca++    0.00099716      T" in pflotran
+    assert "RATE_CONSTANT 1e-12 mol/cm^2-sec" in pflotran
+    # CrunchFlow reads mol/kg and log10 rates
+    assert "Ca++             0.001\n" in crunchflow
+    assert "-rate  -8\n" in crunchflow
+    # There is no change in original .in file
+    assert (repository_root / "benchmarks/batch_chem/calcite-short-pflotran.in").read_text() == (
+        benchmark)
+
+
+def test_chemistry_summary_agrees_across_engines(repository_root):
+    """Both engines report the same calcite system in the same units."""
+    spec = get_case("calcite-short")
+    pflotran = get_chemistry(repository_root, spec, "PFloTran")
+    crunchflow = get_chemistry(repository_root, spec, "CrunchFlow")
+    assert (pflotran["case"], pflotran["engine"]) == ("calcite-short", "PFloTran")
+    assert pflotran["minerals"] == crunchflow["minerals"] == {
+        "Calcite": {"volume_fraction": 0.2, "surface_area": 100.0}}
+    assert pflotran["rates"] == crunchflow["rates"] == {"Calcite": 1e-9}
+    assert pflotran["aqueous"]["Ca++"]["value"] == pytest.approx(
+        crunchflow["aqueous"]["Ca++"]["value"], rel=1e-4)
+    assert pflotran["units"]["total"] == "mol/kg water"
+
 
 @pytest.mark.parametrize("request_body", [
     {"input_file": "x"},    # Not in the field
@@ -132,6 +172,12 @@ def test_reference_escaping_the_input_directory_is_rejected(tmp_path):
     {"initial_condition": 1},
     {"dt": 5.0},    # Belongs to TimeConfigRequest
     {"max_steps": 2},
+    {"chemistry": {"aqueous": {"Ca++": "1"}}},
+    {"chemistry": {"aqueous": {"Ca++": float("nan")}}},
+    {"chemistry": {"minerals": {"Calcite": {"volume_fraction": 2.0}}}},
+    {"chemistry": {"minerals": {"Calcite": {"rate": 1.0}}}},
+    {"chemistry": {"rates": {"Calcite": -9.0}}},   # Linear, not log10
+    {"chemistry": {"species": {}}},
 ])
 def test_invalid_requests_are_rejected(request_body):
     """Unknown, mistyped, non-finite and out-of-range fields never become a request."""
