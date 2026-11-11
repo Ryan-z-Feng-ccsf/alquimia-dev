@@ -67,6 +67,8 @@ typedef struct {
 
   /* --- Simulation Physics & Tracking --- */
   double porosity;
+  // Setup temperature in degrees Celsius; engines reset it from their inputs
+  double temperature;
   double time;
   // Reaction steps completed since initialization
   int completed_steps;

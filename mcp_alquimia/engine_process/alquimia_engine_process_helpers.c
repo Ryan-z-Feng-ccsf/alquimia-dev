@@ -182,17 +182,21 @@ static cJSON* EngineError(SimulationEngineSession* simulation_session, const cha
 }
 
 /**
- * @brief Restores the fixed porosity and recomputes auxiliary output after a chemistry call.
+ * @brief Restores the fixed porosity and temperature and recomputes auxiliary output after a
+ *        chemistry call.
  * @param[in,out] simulation_session Active session whose state and auxiliary output are updated.
  * @return True on success; false if the engine reported an error in simulation_session->status.
  *
  * Preserves the fixed-porosity convention of the supported batch benchmarks. Runs
  * after every reaction step, as BatchChemDriver does, so a looped react request
- * reproduces the same sequence of single-step requests.
+ * reproduces the same sequence of single-step requests. The temperature is restored
+ * because ProcessCondition overwrites it: PFLOTRAN's NULL flow mode sets the 25 degC
+ * reference and CrunchFlow uses the input file condition's temperature.
  */
 static bool RefreshAuxiliaryOutput(SimulationEngineSession* simulation_session)
 {
   simulation_session->data.state.porosity = simulation_session->porosity;
+  simulation_session->data.state.temperature = simulation_session->temperature;
   simulation_session->interface.GetAuxiliaryOutput(
     &simulation_session->data.engine_state,
     &simulation_session->data.properties,
@@ -307,6 +311,7 @@ static cJSON* Setup(SimulationEngineSession* simulation_session, const cJSON* re
   {
     return Error("setup", -1, "Physical parameters outside supported range");
   }
+  simulation_session->temperature = state->temperature;
 
   // Reading access
   if (access(chem_input_file, R_OK) != 0)
