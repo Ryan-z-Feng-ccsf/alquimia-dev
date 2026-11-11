@@ -22,6 +22,7 @@ from pathlib import Path
 import re
 from typing import Any
 
+from .agent_input_coercion import parse_number
 from .setup_request import ChemistryRequest
 
 # -------------------------------------------------------------------------
@@ -110,15 +111,6 @@ _PFLOTRAN_RATE_UNITS = {
 # Conversion logic: Millimoles (mmol) require scaling the standard molar value by 1,000 (1e3).
 # Micromoles (umol/micromol) require scaling by 1,000,000 (1e6).
 _CRUNCH_UNITS = {"mol/kg": 1.0, "mmol/kg": 1e3, "umol/kg": 1e6, "micromol/kg": 1e6}
-
-
-def parse_number(token: str) -> float | None:
-    """Read a Fortran-style real such as 1.d-5; None if the token is not a finite number."""
-    try:
-        value = float(token.replace("d", "e").replace("D", "E"))
-    except ValueError:
-        return None
-    return value if math.isfinite(value) else None
 
 
 def format_number(value: float) -> str:
