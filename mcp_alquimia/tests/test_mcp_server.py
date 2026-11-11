@@ -167,9 +167,9 @@ async def test_invalid_arguments_preserve_session(manager):
         setup = await call(client, "setup", case="calcite-short", engine="PFloTran")
         session_id = setup["session_id"]
         await call(client, "initialize", session_id=session_id)
-        for time_config in ({"dt": -1}, {"dt": 0}, {"dt": True}, {"dt": "5"}, {"max_steps": 0},
-                            {"max_steps": 1.5}, {"max_steps": True}, {"max_steps": 10001},
-                            {"timestep": 5}):
+        for time_config in ({"dt": -1}, {"dt": 0}, {"dt": True}, {"dt": "5 s"}, {"dt": "inf"},
+                            {"max_steps": 0}, {"max_steps": 1.5}, {"max_steps": "1.5"},
+                            {"max_steps": True}, {"max_steps": 10001}, {"timestep": 5}):
             result = await client.call_tool(
                 "react", {"session_id": session_id, "time_config": time_config})
             assert result.is_error
@@ -279,7 +279,7 @@ async def test_invalid_request_is_rejected_before_launch(manager):
     """Bad fields fail without creating a run directory or process."""
     async with Client(create_server(manager)) as client:
         for request in ({"input_file": "/etc/passwd"}, {"porosity": 2}, {"density": "heavy"},
-                        {"density": True}, {"initial_condition": ""}):
+                        {"density": True}, {"density": "true"}, {"porosity": "2"}, {"initial_condition": ""}):
             error = await client.call_tool(
                 "setup", {"case": "calcite-short", "engine": "PFloTran", "request": request}
             )
@@ -311,6 +311,14 @@ async def test_setup_schema_exposes_the_typed_request(manager):
             "rates"
         }
         assert schema["required"] == ["case", "engine"]
+        # Numeric strings are accepted server-side but never advertised to the agent.
+        assert request["properties"]["temperature"]["type"] == "number"
+        assert schema["$defs"]["ChemistryRequest"]["properties"]["aqueous"][
+            "additionalProperties"]["type"] == "number"
+        time_config = tools["react"].input_schema["$defs"]["TimeConfigRequest"]["properties"]
+        assert [option["type"] for option in time_config["dt"]["anyOf"]] == ["number", "null"]
+        assert [option["type"] for option in time_config["max_steps"]["anyOf"]] == [
+            "integer", "null"]
         assert schema["properties"]["engine"]["enum"] == ["PFloTran", "CrunchFlow"]
         assert request["additionalProperties"] is False
         assert "request" not in schema.get("required", [])
@@ -344,6 +352,36 @@ async def test_chemistry_is_listed_and_patched_into_the_session_input(manager):
                               request={"chemistry": {"aqueous": {"B": 1e-3}}})
         assert accepted["engine"] == "PFloTran"
         assert len(FakeEngineProcess.instances) == 2
+
+
+@pytest.mark.anyio
+async def test_numeric_strings_and_quoted_names_from_small_models_are_accepted(manager):
+    """Quoted numbers and backticked names, as local models send them, run like typed ones."""
+    async with Client(create_server(manager)) as client:
+        session = await call(client, "setup", case="calcite-short", engine="PFloTran", request={
+            "temperature": " 60 ", "chemistry": {"aqueous": {"`Ca++`": "1e-10"}}})
+        saved = json.loads((Path(session["run_dir"]) / "simulation_request.json").read_text())
+        assert saved["request"]["temperature"] == 60.0
+        assert saved["request"]["chemistry"]["aqueous"] == {"Ca++": 1e-10}
+        session_id = session["session_id"]
+        await call(client, "initialize", session_id=session_id)
+        await call(
+            client,
+            "react",
+            session_id=session_id,
+            time_config={"dt": "1.d1", "max_steps": "1e2"}
+        )
+        assert FakeEngineProcess.instances[0].steps == 100
+        assert FakeEngineProcess.instances[0].time == 1000.0
+        duplicate = await client.call_tool("setup", {
+            "case": "calcite-short", "engine": "PFloTran",
+            "request": {"chemistry": {"aqueous": {"Ca++": 1e-3, "`Ca++`": "1e-10"}}}})
+        assert duplicate.is_error and "name the same entry" in duplicate.content[0].text
+        with_unit = await client.call_tool("setup", {
+            "case": "calcite-short", "engine": "PFloTran",
+            "request": {"chemistry": {"aqueous": {"Ca++": "1e-10 mol/kg"}}}})
+        assert with_unit.is_error and "bare number" in with_unit.content[0].text
+        assert len(FakeEngineProcess.instances) == 1
 
 
 @pytest.mark.anyio

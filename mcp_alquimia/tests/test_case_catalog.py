@@ -172,7 +172,7 @@ def test_chemistry_summary_agrees_across_engines(repository_root):
     {"initial_condition": 1},
     {"dt": 5.0},    # Belongs to TimeConfigRequest
     {"max_steps": 2},
-    {"chemistry": {"aqueous": {"Ca++": "1"}}},
+    {"chemistry": {"aqueous": {"Ca++": "1 mol/kg"}}},  # Numbers only, no units
     {"chemistry": {"aqueous": {"Ca++": float("nan")}}},
     {"chemistry": {"minerals": {"Calcite": {"volume_fraction": 2.0}}}},
     {"chemistry": {"minerals": {"Calcite": {"rate": 1.0}}}},
@@ -213,7 +213,7 @@ def test_unknown_initial_condition_is_rejected():
 
 
 @pytest.mark.parametrize("time_config", [
-    {"dt": 0}, {"dt": -1.0}, {"dt": "5"}, {"dt": True}, {"dt": float("nan")},
+    {"dt": 0}, {"dt": -1.0}, {"dt": "5 s"}, {"dt": True}, {"dt": float("nan")},
     {"dt": float("inf")}, {"max_steps": 0}, {"max_steps": 1.5}, {"max_steps": True},
     {"timestep": 5.0},
 ])
