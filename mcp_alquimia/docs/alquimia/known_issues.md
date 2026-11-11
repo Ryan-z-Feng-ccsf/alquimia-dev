@@ -10,14 +10,14 @@ sources are under `build/install/include/pflotran/`, CrunchFlow sources under
 
 ## Settings that have no effect
 
-### Temperature override has no effect; results report 25 °C
+### Temperature changes the chemistry only for some cases
 
-Engines: PFLOTRAN and CrunchFlow (verified by running calcite-vf-pc-pflotran and
-calcite-vf-cc-crunch at 25 and 60 °C: identical results, `temperature_celsius` 25 in both).
-
-`setup` accepts `temperature` and copies it into the Alquimia state, but `initialize`
-overwrites it with the input file's value, and the MCP restores only porosity afterwards
-(`helpers.c:195`). Water density is reset the same way.
+Engines: PFLOTRAN and CrunchFlow. `setup`'s `temperature` now reaches the engine:
+`initialize` overwrites the state temperature, and the MCP restores the setup value after
+`initialize` and after every step (`helpers.c:198-199`), as it does for porosity. Water
+density is still reset from the input file. The returned `temperature_celsius` is therefore
+always the requested value; it does not show whether the chemistry responded. Before this
+change, both engines ran and reported 25 °C whatever the request.
 
 - PFLOTRAN: `ProcessPFLOTRANConstraint` calls `ReactionPrintConstraint` (IF-P:1399), which
   in PFLOTRAN's NULL flow mode sets temperature to the 25 °C reference, density to the
@@ -26,28 +26,85 @@ overwrites it with the input file's value, and the MCP restores only porosity af
   affected.
 - CrunchFlow: the named condition sets `t = tempcond(nco)` from the condition's `temperature`
   in the input file (IF-C:1555, 1743, 1781), which is copied back to the state
-  (IF-C:2508-2509).
+  (IF-C:2508-2509). The initial condition is therefore still equilibrated at the input
+  file's temperature (25 °C); only the reaction steps use the requested temperature.
 
-Even if the temperature reached the engine:
+Whether log K follows the temperature depends on the case's input:
 
 - PFLOTRAN runs isothermally: `use_isothermal = PETSC_TRUE` (IF-P:1032) unless the input has a
-  NONISOTHERMAL card (IF-P:1176-1185), so log K values stay at 25 °C.
+  NONISOTHERMAL card (IF-P:1176-1185), so log K values stay at 25 °C. No case input has
+  the card.
 - CrunchFlow input files with `RunIsothermal true` keep log K at the input temperature:
   calcite-short, general-reaction, ion-exchange-valocchi, isotherms, surface-complexation-2.
   calcite-co2, calcite-vf and ch4-o2 evaluate log K from the database temperature fit
   (`keqcalc2.F90:88-96`).
 - Both engines apply the Arrhenius factor to mineral rates from the current temperature
   even in isothermal mode (PFLOTRAN `reaction_mineral.F90:850-866`, CrunchFlow
-  `reactionTope.F90:315-318`), so rates and log K would be inconsistent.
+  `reactionTope.F90:315-318`), so rates and log K would be inconsistent. The calcite cases
+  set no activation energy, so this has no effect there.
 
-Workaround: none through `setup`. For CrunchFlow, the temperature must be changed in the
-input file's condition (`temperature`) and `RunIsothermal` must be false; this path has not
-been tested through the MCP. Do not report a temperature effect from an override.
+Results by case (verified on 2026-11-11 with `batch_chem` and the engine process, 15 against
+25 °C):
+
+| Case | Engine | Temperature effect |
+|---|---|---|
+| calcite-vf | CrunchFlow | Yes. After 60 steps of 30 days: Ca 4.84e-3 versus 4.61e-3 mol/kg, pH 6.62 versus 6.51 |
+| calcite-co2 | CrunchFlow | Expected, as calcite-vf (same database and settings); not run through the MCP |
+| calcite-short, surface-complexation-2 | CrunchFlow | None: `RunIsothermal true` |
+| calcite-vf, calcite-short, calcite-vf-sa, surface-complexation-2 | PFLOTRAN | None: isothermal |
+| general-reaction, isotherms, ion-exchange-valocchi, microbial, ch4-o2 | both | None, even with temperature dependence enabled: no secondary species or minerals, and no activation energies |
+
+Do not report a temperature effect for a case listed with none, even though
+`temperature_celsius` shows the requested value.
+
+#### Enabling temperature dependence in the input files
+
+Doing this requires editing the case inputs; the MCP cannot do it through `setup`.
+
+- CrunchFlow: set `RunIsothermal false`. To also equilibrate the initial condition at
+  the new temperature, change the condition's `temperature` (`set_temperature` in the
+  TEMPERATURE block is not used by Alquimia).
+- PFLOTRAN: add a NONISOTHERMAL card. Verified on calcite-vf with the restore above: 15 °C
+  gives Ca 4.15e-3 versus 3.94e-3 mol/kg and pH 6.54 versus 6.43 at 25 °C. Without the
+  restore, the card changes the results only slightly (Ca 3.935e-3 versus 3.937e-3),
+  because only the initial equilibration sees the requested temperature.
+
+Both engines then need log K at every database temperature for every species the input
+uses. Some benchmark databases have a log K only at 25 °C, with `500.0` ("no data") at
+the other seven points:
+
+| Database | Species with only a 25 °C log K | Cases |
+|---|---|---|
+| `calcite.dbs`, `calcite.dat`, `ch4-o2.dbs` | CaOH+ | calcite-vf, calcite-short, calcite-co2 (ch4-o2 does not use CaOH+) |
+| `surface-complexation.dbs`, `surface-complexation.dat` | Zn(OH)2(aq), Zn(OH)3-, Zn(OH)4--, ZnOH+, and the >FeO-, >FeOH2+ and >FeOHZn+ surface complexes (weak and strong sites) | surface-complexation-2 |
+
+- CrunchFlow stops when a condition's temperature is not 25 °C. It does not stop when only
+  the step temperature differs: through the MCP, calcite-vf at 15 °C runs with the original
+  database, and its result matches the run with CaOH+ removed to six digits.
+
+  ```
+  Only one logK in database at T(C):    25.000000000000000
+  Temperature of condition:             15.000000000000000
+  Species missing log Ks: CaOH+
+  ```
+
+  `batch_chem` still exits with status 0 after this error, so check the output text, not
+  the exit status.
+- PFLOTRAN with NONISOTHERMAL rejects the database even at 25 °C (`ERROR: Undefined log Ks
+  for temperatures (0.0 60.0 100.0 150.0 200.0 250.0 300.0) for species "CaOH+" in
+  database.` in the `.out.alquimia` file). The error path then aborts in `PetscFinalize`
+  with `munmap_chunk(): invalid pointer` (signal 6), so the run looks like a crash.
+
+The fix is to remove the species from both the database and the input's secondary species
+(removing it from only the database fails with "Secondary species in input file not found
+in database"), or to fill in its log K values from a full database such as EQ3/6 `data0`.
+CaOH+ is negligible at the pH of the calcite cases. The surface-complexation species
+control Zn sorption and cannot be removed; that case needs real log K values.
 
 ### Porosity stays constant during a run
 
 Engines: all. The MCP resets `state.porosity` to the setup value after every step
-(`helpers.c:195`), like BatchChemDriver (`drivers/BatchChemDriver.c:609-610`). Mineral
+(`helpers.c:198`), like BatchChemDriver (`drivers/BatchChemDriver.c:609-610`). Mineral
 dissolution or precipitation therefore never feeds back into porosity, and the returned
 `porosity` is always the setup value. In PFLOTRAN the porosity written back by the interface
 is an unassigned local variable (IF-P:374, 504, 1785), which is why drivers overwrite it.
@@ -55,7 +112,7 @@ is an unassigned local variable (IF-P:374, 504, 1785), which is why drivers over
 ### Rate constants, Kd, CEC and surface site densities cannot be changed
 
 Engines: PFLOTRAN and CrunchFlow. The MCP always sets up the engine with `hands_off = true`
-(`helpers.c:323`), so mineral and aqueous rate constants, isotherm Kd (and Langmuir/Freundlich
+(`helpers.c:328`), so mineral and aqueous rate constants, isotherm Kd (and Langmuir/Freundlich
 parameters), cation exchange capacity and surface site densities always come from the input
 and database files (IF-P:1677-1740, IF-C:2391-2440). There is no setup field for them, and the
 cfg keys `isotherm_kd`, `langmuir_b`, `freundlich_n`, `cation_exchange_capacity` and
@@ -71,7 +128,7 @@ are not used, IF-C:2310, 2312).
 ### A step that does not converge ends the session and loses that react call
 
 Engines: PFLOTRAN and CrunchFlow. The MCP stops at the first non-converged step
-(`helpers.c:460-468`) and the Python session manager drops the session on any error
+(`helpers.c:465-473`) and the Python session manager drops the session on any error
 (`mcp_alquimia/src/mcp_alquimia/session_manager.py:231-234`). Steps completed earlier in the
 same `react` call are not returned. The MCP does not cut dt or retry.
 
@@ -135,7 +192,7 @@ returns `pH: null`.
 
 `get_results` and `react` return `time` (seconds since initialize), `completed_steps`, `pH`,
 `temperature_celsius`, `porosity`, `total_mobile`, `total_immobile` and
-`mineral_volume_fraction` (`helpers.c:246-270`). Names are only in the setup metadata
+`mineral_volume_fraction` (`helpers.c:250-274`). Names are only in the setup metadata
 (`primary_species`, `minerals`). Not returned: free-ion concentrations, activity coefficients,
 saturation indices, mineral reaction rates, secondary species, surface sites and CEC. Only
 the final state of each `react` call is kept. Workaround: for a time series, call `react`
