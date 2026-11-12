@@ -141,6 +141,6 @@ def assert_history_matches_driver(result, baseline):
         for index, name in enumerate(names):
             assert [row[field][index] for row in history] == pytest.approx(
                 baseline[f"{key}[{name}]"], rel=1e-6, abs=1e-14), (field, name)
-    if result["metadata"]["has_pH"]:
+    if history[-1]["pH"] is not None:
         # The original driver repeats final pH in every history row.
         assert history[-1]["pH"] == pytest.approx(baseline["pH"][-1], rel=1e-6, abs=1e-14)

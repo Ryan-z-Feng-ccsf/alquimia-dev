@@ -31,12 +31,11 @@ def test_matches_original_driver(
     history = result["history"]
     assert len(history) == engine_case.max_steps + 1
     assert result["final"] == history[-1]
-    assert result["metadata"]["units"]["total_mobile"] == "mol/L water"
+    assert set(result["metadata"]) == {"primary_species", "minerals"}
     # Compare original driver with the subprocess results
     assert_history_matches_driver(result, baseline)
 
     if engine_case.name == "onnx-ex8":
-        assert result["metadata"]["has_pH"] is False
         assert result["metadata"]["minerals"] == []
         assert all(row["pH"] is None for row in history)
         assert history[0]["total_mobile"] == pytest.approx([1e-5, 1e-7])
@@ -48,7 +47,7 @@ def test_matches_original_driver(
                 total = row["total_mobile"][index] + row["total_immobile"][index] / 250
                 assert total == pytest.approx(initial, rel=1e-10, abs=1e-16)
     else:
-        assert result["metadata"]["has_pH"] is True
+        assert all(row["pH"] is not None for row in history)
         if engine_case.name == "pflotran-calcite":
             assert history[-1]["total_immobile"] == []
             assert history[-1]["total_mobile"][0] < 0  # Valid H+ total.
@@ -76,7 +75,7 @@ def test_persistent_reactions_and_initialization_only(
         assert initial == initial_only["final"]
         first = process.request("react", dt=2, max_steps=1)
         final = process.request("react", dt=3, max_steps=1)
-        assert (initial["time"], first["time"], final["time"], final["completed_steps"]) == (0, 2, 5, 2)
+        assert (initial["time"], first["time"], final["time"], final["total_steps"]) == (0, 2, 5, 2)
         assert final == process.request("get_results")
         if engine_case.name == "pflotran-calcite":
             assert final["total_mobile"][2] > initial["total_mobile"][2]
@@ -100,7 +99,7 @@ def test_looped_react_matches_single_steps(engine_process_executable, staged_eng
                 state = process.request("react", **parameters)
             states.append(state)
     assert states[0] == states[1]
-    assert (states[0]["time"], states[0]["completed_steps"]) == (7.5, 3)
+    assert (states[0]["time"], states[0]["total_steps"]) == (7.5, 3)
 
 
 def test_unknown_condition_shuts_down(engine_process_executable, staged_engine_case):

@@ -51,7 +51,7 @@ class FakeEngineProcess:
             time.sleep(0.01)
             self.time = previous + parameters["dt"] * parameters["max_steps"]
             self.steps += parameters["max_steps"]
-        return {"time": self.time, "completed_steps": self.steps, "total_mobile": [1.0]}
+        return {"time": self.time, "total_steps": self.steps, "total_mobile": [1.0]}
 
     def close(self):
         """Record that this process was reaped."""
@@ -73,11 +73,14 @@ def manager(monkeypatch, repository_root, tmp_path):
 
 
 async def call(client, name, **arguments):
-    """Call a tool and require a structured successful result."""
+    """Call a tool and require one compact JSON text result, returned parsed."""
     result = await client.call_tool(name, arguments)
     assert not result.is_error, result
-    assert isinstance(result.structured_content, dict)
-    return result.structured_content
+    assert result.structured_content is None
+    text, = (block.text for block in result.content)
+    payload = json.loads(text)
+    assert text == json.dumps(payload, separators=(",", ":")), "not compact JSON"
+    return payload
 
 
 @pytest.mark.anyio
@@ -137,9 +140,10 @@ async def test_sessions_lifecycle_isolation_and_disconnect(manager):
                 await call(client, "react", session_id=a, time_config={"dt": dt, "max_steps": 1})
             group.start_soon(react, 2.0)
             group.start_soon(react, 3.0)
-        state = (await call(client, "get_results", session_id=a))["state"]
-        assert (state["time"], state["completed_steps"]) == (5, 2)
-        assert (await call(client, "get_results", session_id=b))["state"]["time"] == 0
+        results = await call(client, "get_results", session_id=a)
+        assert (results["time"], results["total_steps"]) == (5, 2)
+        assert results["state"] == {"aqueous_total": {"H": 1.0}}
+        assert (await call(client, "get_results", session_id=b))["time"] == 0
         assert (await call(client, "close", session_id=a))["closed"] is True
         assert (await call(client, "close", session_id=a))["closed"] is False
         unknown = await client.call_tool("get_results", {"session_id": a})
@@ -148,7 +152,7 @@ async def test_sessions_lifecycle_isolation_and_disconnect(manager):
         await call(client, "setup", case="calcite-short", engine="CrunchFlow")
     assert all(process.closed for process in FakeEngineProcess.instances)
     assert manager._sessions == {}
-    saved = json.loads((Path(first["run_dir"]) / "simulation_results.json").read_text())
+    saved = json.loads((manager.run_root / a / "simulation_results.json").read_text())
     assert saved["status"] == "closed"
     assert saved["engine"] == "PFloTran"
     assert [row["time"] for row in saved["history"]][-1] == 5
@@ -174,7 +178,7 @@ async def test_invalid_arguments_preserve_session(manager):
                 "react", {"session_id": session_id, "time_config": time_config})
             assert result.is_error
             assert "time_config" in result.content[0].text
-        assert (await call(client, "get_results", session_id=session_id))["state"]["time"] == 0
+        assert (await call(client, "get_results", session_id=session_id))["time"] == 0
 
 
 @pytest.mark.anyio
@@ -268,9 +272,14 @@ async def test_setup_request_overrides_and_is_recorded(manager):
         setup_arguments = FakeEngineProcess.instances[0].setup_arguments
         assert setup_arguments["temperature"] == 60.0 and setup_arguments["porosity"] == 0.3
         assert setup_arguments["density"] == 997.16 and setup_arguments["engine"] == "PFloTran"
-        assert session["setup"] == setup_arguments
+        assert session["settings"] == {
+            key: value for key, value in setup_arguments.items()
+            if key not in ("engine", "input_file", "initial_condition")}
         assert (session["case"], session["engine"]) == ("calcite-short", "PFloTran")
-        saved = json.loads((Path(session["run_dir"]) / "simulation_request.json").read_text())
+        assert session["units"]["aqueous_total"] == "mol/L water"
+        assert set(session) == {"session_id", "case", "engine", "settings", "time", "units"}
+        run_dir = manager.run_root / session["session_id"]
+        saved = json.loads((run_dir / "simulation_request.json").read_text())
         assert saved["request"] == {"temperature": 60.0, "porosity": 0.3}
 
 
@@ -333,7 +342,7 @@ async def test_chemistry_is_listed_and_patched_into_the_session_input(manager):
         assert chemistry["units"]["rates"] == "mol/m^2/s"
         session = await call(client, "setup", case="calcite-short", engine="CrunchFlow",request={
             "chemistry": {"minerals": {"Calcite": {"volume_fraction": 0.1}}}})
-        run_dir = Path(session["run_dir"])
+        run_dir = manager.run_root / session["session_id"]
         assert sorted(path.name for path in run_dir.glob("*.in")) == ["calcite-short-crunch.in"]
         assert "Calcite          0.1      bulk_surface_area 100.0" in (
             run_dir / "calcite-short-crunch.in").read_text()
@@ -360,7 +369,8 @@ async def test_numeric_strings_and_quoted_names_from_small_models_are_accepted(m
     async with Client(create_server(manager)) as client:
         session = await call(client, "setup", case="calcite-short", engine="PFloTran", request={
             "temperature": " 60 ", "chemistry": {"aqueous": {"`Ca++`": "1e-10"}}})
-        saved = json.loads((Path(session["run_dir"]) / "simulation_request.json").read_text())
+        run_dir = manager.run_root / session["session_id"]
+        saved = json.loads((run_dir / "simulation_request.json").read_text())
         assert saved["request"]["temperature"] == 60.0
         assert saved["request"]["chemistry"]["aqueous"] == {"Ca++": 1e-10}
         session_id = session["session_id"]
@@ -379,7 +389,7 @@ async def test_numeric_strings_and_quoted_names_from_small_models_are_accepted(m
         assert duplicate.is_error and "name the same entry" in duplicate.content[0].text
         with_unit = await client.call_tool("setup", {
             "case": "calcite-short", "engine": "PFloTran",
-            "request": {"chemistry": {"aqueous": {"Ca++": "1e-10 mol/kg"}}}})
+            "request": {"chemistry": {"aqueous": {"Ca++": "1e-10 mol/L"}}}})
         assert with_unit.is_error and "bare number" in with_unit.content[0].text
         assert len(FakeEngineProcess.instances) == 1
 
@@ -402,34 +412,34 @@ async def test_time_config_overrides_dt_and_max_steps(manager):
     """One react runs max_steps steps of dt in one engine request; overrides persist."""
     async with Client(create_server(manager)) as client:
         session = await call(client, "setup", case="calcite-short", engine="PFloTran")
-        defaults_time_config = session["simulation"]
+        defaults_time_config = session["time"]
         session_id = session["session_id"]
         await call(client, "initialize", session_id=session_id)
         default_time = defaults_time_config["dt"] * defaults_time_config["max_steps"]
         reacted = await call(client, "react", session_id=session_id)
         assert reacted == {
-            "session_id": session_id,
-            "status": "success",
-            "time_step": defaults_time_config["dt"],
-            "steps_executed": defaults_time_config["max_steps"],
-            "current_time": default_time,
-            "state": reacted["state"],
+            "time": default_time,
+            "steps": defaults_time_config["max_steps"],
+            "total_steps": defaults_time_config["max_steps"],
+            "dt": defaults_time_config["dt"],
+            "state": {"aqueous_total": {"H": 1.0}},
         }
         reacted = await call(client, "react", session_id=session_id,
                              time_config={"dt": 7.5, "max_steps": 3})
-        assert (reacted["time_step"], reacted["steps_executed"]) == (7.5, 3)
+        assert (reacted["dt"], reacted["steps"]) == (7.5, 3)
+        assert reacted["total_steps"] == defaults_time_config["max_steps"] + 3
         # Both overrides persist for the next call
         reacted = await call(client, "react", session_id=session_id)
         # 7.5 * 3 * 2 = 45
-        assert reacted["current_time"] == default_time + 45
+        assert reacted["time"] == default_time + 45
         reacted = await call(client, "react", session_id=session_id, time_config={"max_steps": 1})
         # 45 + 7.5
-        assert (reacted["time_step"], reacted["current_time"]) == (7.5, default_time + 52.5)
+        assert (reacted["dt"], reacted["time"]) == (7.5, default_time + 52.5)
         # Each react call is one engine request and one history entry
         process = FakeEngineProcess.instances[0]
         # 3 + 3 + 1
         assert process.steps == defaults_time_config["max_steps"] + 7
-        operations = (Path(session["run_dir"]) / "operations.jsonl").read_text().splitlines()
+        operations = (manager.run_root / session_id / "operations.jsonl").read_text().splitlines()
         assert json.loads(operations[-1]) == {"operation": "react", "dt": 7.5, "max_steps": 1}
         # 1 initialize + 4 react
         assert len(operations) == 5

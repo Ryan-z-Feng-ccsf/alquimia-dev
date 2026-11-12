@@ -1,6 +1,7 @@
 """Build a small manual index and query it directly and through the MCP tools."""
 
 import importlib.util
+import json
 from pathlib import Path
 import shutil
 import sys
@@ -143,10 +144,10 @@ async def test_docs_tools_over_mcp(repository_root, index_path, tmp_path):
     async with Client(create_server(manager, index_path)) as client:
         found = await client.call_tool("search_docs", {"query": "ion exchange", "limit": 1})
         assert not found.is_error, found
-        hit, = found.structured_content["results"]
+        hit, = json.loads(found.content[0].text)["results"]
         assert hit["title"] == "Keyword blocks > ION_EXCHANGE"
         section = await client.call_tool("read_doc", {"doc_id": hit["doc_id"]})
-        assert "selectivity" in section.structured_content["text"]
+        assert "selectivity" in json.loads(section.content[0].text)["text"]
         schema = {tool.name: tool for tool in (await client.list_tools()).tools}[
             "search_docs"].input_schema
         assert schema["properties"]["limit"]["maximum"] == 20
@@ -161,7 +162,8 @@ async def test_docs_tools_over_mcp(repository_root, index_path, tmp_path):
             assert (await client.call_tool("search_docs", arguments)).is_error, arguments
         filtered = await client.call_tool(
             "search_docs", {"query": "kinetics", "collection": "crunchflow"})
-        assert {hit["collection"] for hit in filtered.structured_content["results"]} == {
+        results = json.loads(filtered.content[0].text)["results"]
+        assert {hit["collection"] for hit in results} == {
             "crunchflow"}
     async with Client(create_server(manager, tmp_path / "absent.sqlite")) as client:
         missing = await client.call_tool("search_docs", {"query": "calcite"})

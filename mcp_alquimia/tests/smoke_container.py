@@ -13,6 +13,14 @@ from mcp import Client
 from mcp.client.stdio import StdioServerParameters
 
 
+def payload(result) -> dict:
+    """Parse a successful tool result's single compact JSON text block."""
+    assert not result.is_error, result
+    assert result.structured_content is None
+    text, = (block.text for block in result.content)
+    return json.loads(text)
+
+
 async def smoke(image: str, docker_host: str | None, output: Path) -> dict:
     """Run each supported engine through container stdio and verify its artifacts.
 
@@ -43,43 +51,36 @@ async def smoke(image: str, docker_host: str | None, output: Path) -> dict:
         assert len(tools.tools) == 9
         # The image ships the knowledge base index for every source
         for collection in ("pflotran", "crunchflow", "alquimia"):
-            found = await client.call_tool(
-                "search_docs", {"query": "mineral", "collection": collection, "limit": 1})
-            assert not found.is_error, found
-            hit, = found.structured_content["results"]
-            section = await client.call_tool("read_doc", {"doc_id": hit["doc_id"]})
-            assert not section.is_error and section.structured_content["text"], section
-        cases = await client.call_tool("list_cases")
-        assert not cases.is_error, cases
-        listing = cases.structured_content
-        for engine, names in listing["engines"].items():
-            for case in names:
+            found = payload(await client.call_tool(
+                "search_docs", {"query": "mineral", "collection": collection, "limit": 1}))
+            hit, = found["results"]
+            section = payload(await client.call_tool("read_doc", {"doc_id": hit["doc_id"]}))
+            assert section["text"], section
+        listing = payload(await client.call_tool("list_cases"))
+        for case, entry in listing["cases"].items():
+            for engine in entry["engines"]:
                 arguments = {"case": case, "engine": engine}
-                chemistry = await client.call_tool("get_chemistry", arguments)
-                assert not chemistry.is_error, chemistry
-                setup = await client.call_tool("setup", arguments)
-                assert not setup.is_error, setup
-                session_id = setup.structured_content["session_id"]
-                initialized = await client.call_tool("initialize", {"session_id": session_id})
-                assert not initialized.is_error, initialized
+                payload(await client.call_tool("get_chemistry", arguments))
+                session_id = payload(await client.call_tool("setup", arguments))["session_id"]
+                initialized = payload(
+                    await client.call_tool("initialize", {"session_id": session_id}))
+                assert (initialized["time"], initialized["total_steps"]) == (0, 0)
                 # A looped request inside the engine, then a single step
                 for time_config in ({"dt": 1.0, "max_steps": 2}, {"dt": 3.0, "max_steps": 1}):
-                    result = await client.call_tool(
-                        "react", {"session_id": session_id, "time_config": time_config})
-                    assert not result.is_error, result
-                    assert result.structured_content["status"] == "success"
-                    assert result.structured_content["steps_executed"] == time_config["max_steps"]
-                final = result.structured_content["state"]
-                assert (final["time"], final["completed_steps"]) == (5, 3)
-                assert result.structured_content["current_time"] == 5
-                polled = await client.call_tool("get_results", {"session_id": session_id})
-                assert not polled.is_error, polled
-                assert polled.structured_content["state"] == final
-                closed = await client.call_tool("close", {"session_id": session_id})
-                assert not closed.is_error, closed
+                    result = payload(await client.call_tool(
+                        "react", {"session_id": session_id, "time_config": time_config}))
+                    assert result["steps"] == time_config["max_steps"]
+                assert (result["time"], result["total_steps"]) == (5, 3)
+                final = result["state"]
+                polled = payload(await client.call_tool("get_results", {"session_id": session_id}))
+                assert polled == {"time": 5, "total_steps": 3, "state": final}
+                assert payload(await client.call_tool("close", {"session_id": session_id})) == {
+                    "closed": True}
                 saved = json.loads(
                     (output / "runs" / session_id / "simulation_results.json").read_text())
-                assert saved["status"] == "closed" and saved["final"] == final
+                # Artifacts keep the raw engine snapshot
+                assert saved["status"] == "closed"
+                assert (saved["final"]["time"], saved["final"]["total_steps"]) == (5, 3)
                 summary["cases"].append(
                     {
                         "case": case,
@@ -89,10 +90,8 @@ async def smoke(image: str, docker_host: str | None, output: Path) -> dict:
                     }
                 )
 
-        leftover = await client.call_tool(
-            "setup", {"case": "calcite-short", "engine": "PFloTran"})
-        assert not leftover.is_error, leftover
-        leftover_id = leftover.structured_content["session_id"]
+        leftover_id = payload(await client.call_tool(
+            "setup", {"case": "calcite-short", "engine": "PFloTran"}))["session_id"]
     # Test the forcily exit (close all the sessions)
     saved = json.loads((output / "runs" / leftover_id / "simulation_results.json").read_text())
     assert saved["status"] == "closed"

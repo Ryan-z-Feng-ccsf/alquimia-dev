@@ -61,15 +61,16 @@ def test_engine_input_lookup():
 def test_listing_prints_defaults_once(repository_root):
     """Time stepping appears once for all cases; physical defaults stay in setup's schema."""
     listing = list_cases(repository_root)
-    assert listing["defaults"] == {"dt": 86400.0, "max_steps": 50, "initial_condition": "initial"}
-    assert set(listing) == {"defaults", "engines", "cases"}
-    assert listing["cases"]["calcite-short"] == get_case("calcite-short").description
+    assert listing["defaults"] == {"dt": 86400.0, "max_steps": 50}
+    assert set(listing) == {"defaults", "cases"}
     assert set(listing["cases"]) == set(CASES)
-    # Each case is named under every engine that runs it
-    assert listing["engines"]["PFloTran"][:2] == ["calcite-short", "calcite-vf"]
-    assert "calcite-short" in listing["engines"]["CrunchFlow"]
-    assert "microbial" not in listing["engines"]["CrunchFlow"]
-    assert sorted(listing["engines"]) == ["CrunchFlow", "PFloTran"]
+    # Each case is listed once with the engines that run it
+    assert listing["cases"]["calcite-short"] == {
+        "engines": ["PFloTran", "CrunchFlow"],
+        "desc": get_case("calcite-short").description,
+    }
+    assert listing["cases"]["microbial"]["engines"] == ["PFloTran"]
+    assert listing["cases"]["calcite-co2"]["engines"] == ["CrunchFlow"]
 
 
 def test_database_is_read_from_the_input_file(tmp_path):
