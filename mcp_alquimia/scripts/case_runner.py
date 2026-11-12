@@ -36,7 +36,7 @@ def run_case(
         timeout (float): Positive, finite timeout per engine process response in seconds.
 
     Returns:
-        dict: Case identifier, metadata with species/mineral order and units,
+        dict: Case identifier, metadata with species/mineral order,
         history including the initial state, and the final state snapshot.
 
     Raises:
