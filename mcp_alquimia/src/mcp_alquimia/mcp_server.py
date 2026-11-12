@@ -160,7 +160,7 @@ def create_server(manager: SessionManager, manual_index: Path | None = None) -> 
         engine: Engine,
         request: SetupRequest | None = None
     ) -> str:
-        """Stage a case for one engine and create a session; returns session_id, setup and metadata.
+        """Stage a case for one engine and create a session; returns session_id, settings, time and units.
 
         Args:
             case: Identifier returned by list_cases.
@@ -184,7 +184,7 @@ def create_server(manager: SessionManager, manual_index: Path | None = None) -> 
     ) -> str:
         """Run max_steps reaction steps of dt seconds; repeated calls continue the state.
 
-        Returns status, time_step (dt), steps_executed, current_time (s) and the final state.
+        Returns time, steps (this call), total_steps, dt and the final state; units are in setup's reply.
 
         Args:
             session_id: ID returned by setup, after initialize has succeeded.
