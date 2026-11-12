@@ -59,7 +59,7 @@ class ChemistryRequest(BaseModel):
     aqueous: dict[Name, Finite] = Field(
         default_factory=dict,
         description="Species to new constraint value, in the units get_chemistry reports for "
-                    "its constraint: mol/kg water (total, free), pH, or bar (gas).")
+                    "its constraint: mol/L water (total, free), pH, or bar (gas).")
     minerals: dict[Name, MineralChange] = Field(default_factory=dict)
     rates: dict[Name, Annotated[LenientFloat, Field(gt=0, allow_inf_nan=False)]] = Field(
         default_factory=dict,
