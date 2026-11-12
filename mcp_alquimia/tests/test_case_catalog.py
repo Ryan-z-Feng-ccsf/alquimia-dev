@@ -130,11 +130,11 @@ def test_staged_chemistry_is_patched_and_benchmark_untouched(repository_root, tm
         )
     pflotran = (tmp_path / "PFloTran/calcite-short-pflotran.in").read_text()
     crunchflow = (tmp_path / "CrunchFlow/calcite-short-crunch.in").read_text()
-    # PFLOTRAN reads mol/L: 1e-3 mol/kg * 0.99716 kg/L; and mol/cm^2-sec
-    assert "Ca++    0.00099716      T" in pflotran
+    # PFLOTRAN reads mol/L unchanged; and mol/cm^2-sec
+    assert "Ca++    0.001      T" in pflotran
     assert "RATE_CONSTANT 1e-12 mol/cm^2-sec" in pflotran
-    # CrunchFlow reads mol/kg and log10 rates
-    assert "Ca++             0.001\n" in crunchflow
+    # CrunchFlow reads mol/kg: 1e-3 mol/L / 0.99716 kg/L; and log10 rates
+    assert "Ca++             0.00100284808857\n" in crunchflow
     assert "-rate  -8\n" in crunchflow
     # There is no change in original .in file
     assert (repository_root / "benchmarks/batch_chem/calcite-short-pflotran.in").read_text() == (
@@ -152,7 +152,7 @@ def test_chemistry_summary_agrees_across_engines(repository_root):
     assert pflotran["rates"] == crunchflow["rates"] == {"Calcite": 1e-9}
     assert pflotran["aqueous"]["Ca++"]["value"] == pytest.approx(
         crunchflow["aqueous"]["Ca++"]["value"], rel=1e-4)
-    assert pflotran["units"]["total"] == "mol/kg water"
+    assert pflotran["units"]["total"] == "mol/L water"
 
 
 @pytest.mark.parametrize("request_body", [
