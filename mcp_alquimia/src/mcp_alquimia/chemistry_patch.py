@@ -9,7 +9,8 @@ constraint's MINERALS, not in MINERAL_KINETICS).
 Values are exchanged in engine-independent units and converted to each engine's
 input units, so one request means the same on every engine:
 
-- total/free concentrations: mol/kg water (PFLOTRAN reads mol/L; CrunchFlow mol/kg)
+- total/free concentrations: mol/L water, Alquimia's state unit (PFLOTRAN reads
+  mol/L; CrunchFlow mol/kg, converted with the water density)
 - surface area: m^2 mineral/m^3 bulk
 - mineral rate constants: mol/m^2/s, linear (CrunchFlow and negative PFLOTRAN
   values are log10)
@@ -23,6 +24,7 @@ import re
 from typing import Any
 
 from .agent_input_coercion import parse_number
+from .response_contract import round_significant
 from .setup_request import ChemistryRequest
 
 # -------------------------------------------------------------------------
@@ -30,18 +32,12 @@ from .setup_request import ChemistryRequest
 # This defines the base physical and chemical units used internally by the 
 # Python API before applying any conversions for PFLOTRAN or CrunchFlow.
 # -------------------------------------------------------------------------
-# -------------------------------------------------------------------------
-# Engine-independent standard units dictionary.
-# This defines the base physical and chemical units used internally by the 
-# Python API before applying any conversions for PFLOTRAN or CrunchFlow.
-# -------------------------------------------------------------------------
 UNITS = {
-    # Aqueous concentrations (Molality)
-    # [WARNING] PFLOTRAN defaults to Molarity (mol/L bulk solution).
-    # It will be handled in _read_pflotran
-    "total": "mol/kg water",          # Total dissolved concentration of a component
-    "free": "mol/kg water",           # Free (uncomplexed) primary species concentration
-    "log": "mol/kg water",            # Logarithmic concentration value
+    # Aqueous concentrations (molarity), matching Alquimia's total_mobile.
+    # CrunchFlow's mol/kg is converted in _read_crunchflow.
+    "total": "mol/L water",           # Total dissolved concentration of a component
+    "free": "mol/L water",            # Free (uncomplexed) primary species concentration
+    "log": "mol/L water",             # Logarithmic concentration value
     
     # Master variables and thermodynamic activities (Standard scales)
     "pH": "pH",                       # Negative base-10 log of Hydrogen ion activity
@@ -106,8 +102,8 @@ _PFLOTRAN_RATE_UNITS = {
     "mol/cm^2/s": 1e-4,
 }
 
-# CrunchFlow concentration magnitude conversion
-# Assumes engine-independent standard unit is mol/kg (factor 1.0)
+# CrunchFlow concentration magnitude conversion, relative to mol/kg; the
+# mol/L standard is converted to mol/kg with the water density in _read_crunchflow
 # Conversion logic: Millimoles (mmol) require scaling the standard molar value by 1,000 (1e3).
 # Micromoles (umol/micromol) require scaling by 1,000,000 (1e6).
 _CRUNCH_UNITS = {"mol/kg": 1.0, "mmol/kg": 1e3, "umol/kg": 1e6, "micromol/kg": 1e6}
@@ -650,8 +646,8 @@ class Chemistry:
         """
 
         def value(item):
-            # Six significant digits keep the summary short; edits use exact values
-            return float(f"{item.value:.6g}") if item else None
+            # Rounded to keep the summary short; edits use exact values
+            return round_significant(item.value) if item else None
 
         aqueous = {}
         for name, entry in self.aqueous.items():
@@ -712,24 +708,19 @@ def _log_field(line: Line, position: int, factor: float = 1.0) -> Field | None:
     )
 
 
-def _read_pflotran(
-    document: InputDocument, condition: str, density: float
-) -> Chemistry:
+def _read_pflotran(document: InputDocument, condition: str) -> Chemistry:
     """
     Read a PFLOTRAN CONSTRAINT and the MINERAL_KINETICS rate constants.
 
     Extracts aqueous species concentrations and solid phase properties (volume 
     fraction, surface area) from the specified nested CONSTRAINT block. It also 
     parses the global MINERAL_KINETICS block to extract reaction rate constants. 
-    Because PFLOTRAN typically defines concentrations in molarity (mol/L), this 
-    function uses fluid density to convert these values into the engine-independent 
-    standard of molality (mol/kg).
+    PFLOTRAN constraint concentrations default to molarity (mol/L), the
+    engine-independent standard, so they are read without conversion.
 
     Args:
         document (InputDocument): The parsed PFLOTRAN input document tree.
         condition (str): The name of the CONSTRAINT block to extract (e.g., "initial").
-        density (float): Fluid density in kg/m³ (or g/L), used to convert molar 
-                         concentrations (mol/L) to molal (mol/kg).
 
     Returns:
         Chemistry: An engine-independent object representing the chemical state.
@@ -756,9 +747,7 @@ def _read_pflotran(
         ... /
         ... '''
         >>> doc = InputDocument(text, engine="PFLOTRAN")
-        >>> chem = _read_pflotran(doc, "initial", density=1000.0)
-        
-        # Density of 1000 kg/m³ makes the conversion factor 1.0 (mol/L == mol/kg)
+        >>> chem = _read_pflotran(doc, "initial")
         >>> chem.aqueous["Ca++"].constraint
         'total'
         >>> chem.aqueous["Ca++"].field.value
@@ -779,10 +768,7 @@ def _read_pflotran(
     if constraint is None:
         raise ValueError(f"No CONSTRAINT {condition!r} in the PFLOTRAN input")
     chemistry = Chemistry()
-    # PFLOTRAN concentrations are mol/L; mol/L = mol/kg * density [kg/L]
-    # kg/m³ / 1000 -> kg/L
-    molar_factor = density / 1000.0
-    
+
     # Find the CONCENTRATIONS block
     concentrations = constraint.find("CONCENTRATIONS")
     for line in concentrations.lines() if concentrations else ():
@@ -805,9 +791,9 @@ def _read_pflotran(
             constraint_type, associated=tokens[3] if len(tokens) > 3 else None
         )
         if constraint_type in ("total", "free"):
-            entry.field = _number_field(line, 1, molar_factor)
+            entry.field = _number_field(line, 1)
         elif constraint_type == "log":
-            entry.field = _log_field(line, 1, molar_factor)
+            entry.field = _log_field(line, 1)
         elif constraint_type in ("pH", "pe", "gas"):
             # No factor
             entry.field = _number_field(line, 1)
@@ -856,7 +842,9 @@ def _read_pflotran(
     return chemistry
 
 
-def _read_crunchflow(document: InputDocument, condition: str) -> Chemistry:
+def _read_crunchflow(
+    document: InputDocument, condition: str, density: float
+) -> Chemistry:
     """
     Read a CrunchFlow Condition and the -rate options of its MINERALS block.
 
@@ -869,6 +857,8 @@ def _read_crunchflow(document: InputDocument, condition: str) -> Chemistry:
     Args:
         document (InputDocument): The parsed CrunchFlow input document tree.
         condition (str): The name of the CONDITION block to extract (e.g., "initial").
+        density (float): Water density in kg/m^3, converting the condition's
+                         mol/kg (molality) to the mol/L standard.
 
     Returns:
         Chemistry: An engine-independent object representing the chemical state.
@@ -896,7 +886,7 @@ def _read_crunchflow(document: InputDocument, condition: str) -> Chemistry:
         ... END
         ... '''
         >>> doc = InputDocument(text, engine="CrunchFlow")
-        >>> chem = _read_crunchflow(doc, "initial")
+        >>> chem = _read_crunchflow(doc, "initial", density=1000.0)
         
         # pH is mapped to H+ constraint
         >>> chem.aqueous["H+"].constraint
@@ -904,7 +894,7 @@ def _read_crunchflow(document: InputDocument, condition: str) -> Chemistry:
         >>> chem.aqueous["H+"].field.value
         5.0
         
-        # Primary species parsed correctly
+        # Density of 1000 kg/m^3 makes mol/kg equal mol/L
         >>> chem.aqueous["Ca++"].field.value
         0.001
         
@@ -949,7 +939,9 @@ def _read_crunchflow(document: InputDocument, condition: str) -> Chemistry:
         if unit_line and len(unit_line.tokens) > 1
         else "mol/kg"
     )
-    concentration_factor = _CRUNCH_UNITS.get(unit)
+    # input value = mol/L / (density [kg/L]) * unit scale
+    unit_scale = _CRUNCH_UNITS.get(unit)
+    concentration_factor = unit_scale * 1000.0 / density if unit_scale else None
     
     # Within CONDITION block
     # Parse the primary species and mineral
@@ -1013,15 +1005,15 @@ def _crunch_aqueous(line: Line, minerals: set[str], factor: float | None) -> Aqu
     partial pressure, or fixed concentration). 
 
     If a valid `factor` is provided, numerical values are converted to standard units 
-    (mol/kg) and wrapped in an editable `Field`. A `None` factor indicates that the 
-    condition's units (e.g., ppm) lack a straightforward mol/kg conversion, rendering 
+    (mol/L) and wrapped in an editable `Field`. A `None` factor indicates that the 
+    condition's units (e.g., ppm) lack a straightforward mol/L conversion, rendering 
     the concentration read-only (i.e., the `field` property is set to None).
 
     Args:
         line (Line): The parsed line representing the aqueous species constraint.
         minerals (set[str]): A set of known mineral names defined in the configuration, 
                              used to detect mineral-equilibrium constraints.
-        factor (float | None): The unit conversion multiplier to standard mol/kg. 
+        factor (float | None): Input value per standard mol/L. 
                                Pass None if the units cannot be safely converted.
 
     Returns:
@@ -1064,14 +1056,14 @@ def read_document(document: InputDocument, condition: str, density: float) -> Ch
     Args:
         document: Parsed PFLOTRAN or CrunchFlow input tree.
         condition: Constraint (PFLOTRAN) or Condition (CrunchFlow) name.
-        density: Water density in kg/m^3, converting PFLOTRAN's mol/L to mol/kg.
+        density: Water density in kg/m^3, converting CrunchFlow's mol/kg to mol/L.
 
     Raises:
         ValueError: The input does not define the condition.
     """
     if document.engine == "PFloTran":
-        return _read_pflotran(document, condition, density)
-    return _read_crunchflow(document, condition)
+        return _read_pflotran(document, condition)
+    return _read_crunchflow(document, condition, density)
 
 
 def read_chemistry(
@@ -1108,7 +1100,7 @@ def patch_chemistry(
             )
             )
         
-        density: Water density in kg/m^3 of the run, for PFLOTRAN's mol/L.
+        density: Water density in kg/m^3 of the run, for CrunchFlow's mol/kg.
 
     Raises:
         ValueError: A name is not in the condition or input, a value cannot be
