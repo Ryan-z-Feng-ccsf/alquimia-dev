@@ -185,8 +185,8 @@ initialize products at a small positive value such as 1e-20 in the input constra
 ### pH is -100
 
 Engines: PFLOTRAN (IF-P:660-664) and CrunchFlow (IF-C:1006-1011) report pH = -100 when H+ is
-not a primary species. `has_pH` is still true. Treat pH below -50 as not available. ONNX
-returns `pH: null`.
+not a primary species, and the MCP response still includes it. Treat pH below -50 as not
+available. ONNX reports no pH, so its responses omit the field.
 
 ### Results contain only totals, at the end of each react call
 
