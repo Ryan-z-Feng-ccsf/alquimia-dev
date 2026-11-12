@@ -71,7 +71,7 @@ typedef struct {
   double temperature;
   double time;
   // Reaction steps completed since initialization
-  int completed_steps;
+  int total_steps;
 } SimulationEngineSession;
 
 /* Creates an error reply; the caller owns the returned JSON tree. */

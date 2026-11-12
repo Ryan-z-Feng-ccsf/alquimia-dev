@@ -91,7 +91,7 @@ def missing_files(repository: str | Path, engine_input: EngineInput) -> list[str
 def list_cases(
     repository: str | Path, cases: Mapping[str, CaseSpec] = CASES
 ) -> dict[str, Any]:
-    """Describe the cases compactly: shared defaults once, then cases by engine.
+    """Describe the cases compactly: shared defaults once, then each case.
 
     Physical defaults are not repeated here; setup's request schema shows them.
 
@@ -100,25 +100,24 @@ def list_cases(
         cases: Cases to describe, keyed by name.
 
     Returns:
-        "defaults" (dt in s, max_steps, initial condition), "engines" (each
-        engine's case names), "cases" (each case's description), and
-        "missing_files" (case to engine to absent files) only if any is absent.
+        "defaults" (dt in s, max_steps), "cases" (each case's engines and
+        description, "desc"), and "missing_files" (case to engine to absent
+        files) only if any is absent.
     """
-    by_engine: dict[str, list[str]] = {}
     missing: dict[str, dict[str, list[str]]] = {}
     for spec in cases.values():
         for engine_input in spec.inputs:
-            by_engine.setdefault(engine_input.engine, []).append(spec.name)
             if files := missing_files(repository, engine_input):
                 missing.setdefault(spec.name, {})[engine_input.engine] = files
     listing = {
-        "defaults": {
-            "dt": CaseSpec.dt,
-            "max_steps": CaseSpec.max_steps,
-            "initial_condition": "initial",
+        "defaults": {"dt": CaseSpec.dt, "max_steps": CaseSpec.max_steps},
+        "cases": {
+            spec.name: {
+                "engines": [engine_input.engine for engine_input in spec.inputs],
+                "desc": spec.description,
+            }
+            for spec in cases.values()
         },
-        "engines": by_engine,
-        "cases": {spec.name: spec.description for spec in cases.values()},
     }
     if missing:
         listing["missing_files"] = missing

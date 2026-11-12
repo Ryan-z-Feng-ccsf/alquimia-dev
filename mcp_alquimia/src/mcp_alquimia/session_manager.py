@@ -12,6 +12,7 @@ import uuid
 
 from .case_catalog import list_cases as describe_cases, stage_case
 from .case_registry import get_case
+from .response_contract import RESPONSE_UNITS, shape_snapshot, shape_state
 from .setup_request import SetupRequest
 from .subprocess_client import AlquimiaEngineProcess
 from .time_config_request import TimeConfigRequest
@@ -108,7 +109,8 @@ class SessionManager:
                 Omitted fields keep the defaults shown by list_cases.
 
         Returns:
-            Session ID, artifact directory, setup arguments and native metadata.
+            session_id, case, engine, settings (physical settings and initial
+            condition), time (dt and max_steps) and units of all responses.
             Initialization is a separate operation; setup does not perform a reaction.
 
         Raises:
@@ -161,15 +163,17 @@ class SessionManager:
                 "session_id": session_id,
                 "case": spec.name,
                 "engine": engine_input.engine,
-                "run_dir": str(run_dir),
-                "setup": setup,
-                "simulation": time_step_config,
-                "metadata": metadata
+                "settings": {
+                    key: value for key, value in setup.items()
+                    if key not in ("engine", "input_file", "initial_condition") # Physical condition
+                },
+                "time": time_step_config,
+                "units": RESPONSE_UNITS,
             }
 
     def initialize(self, session_id: str) -> dict[str, Any]:
-        """Apply the case's initial condition once and return its state."""
-        return self._request(session_id, "initialize")
+        """Apply the case's initial condition once; returns time, total_steps and state."""
+        return self._snapshot(session_id, "initialize")
 
     def react(
         self,
@@ -186,27 +190,36 @@ class SessionManager:
                 current values (initially the defaults).
 
         Returns:
-            status "success", time_step (dt in seconds), steps_executed,
-            current_time (seconds since initialization), and the final state.
+            time (seconds since initialization), steps run by this call,
+            total_steps since initialization, dt (seconds), and the final state.
         """
         result = self._request(
             session_id, "react", time_config=time_config or TimeConfigRequest())
-        state = result["state"]
+        raw = result["state"]
         return {
-            "session_id": session_id,
-            "status": "success",
-            "time_step": result["dt"],
-            "steps_executed": result["max_steps"],
-            "current_time": state["time"],
-            "state": state,
+            "time": raw["time"],
+            "total_steps": raw["total_steps"],
+            "steps": result["max_steps"],
+            "dt": result["dt"],
+            "state": shape_state(raw, result["metadata"]),
         }
 
     def get_results(self, session_id: str) -> dict[str, Any]:
-        """Return the latest initialized state without advancing the engine."""
-        return self._request(session_id, "get_results")
+        """Return the latest time, total_steps and state without advancing the engine."""
+        return self._snapshot(session_id, "get_results")
+
+    def _snapshot(self, session_id: str, operation: str) -> dict[str, Any]:
+        """Run initialize or get_results and shape its state for the client."""
+        result = self._request(session_id, operation)
+        return shape_snapshot(result["state"], result["metadata"])
 
     def _request(self, session_id: str, operation: str, **parameters) -> dict[str, Any]:
-        """Validate lifecycle, invoke the engine, and persist completed operations."""
+        """Validate lifecycle, invoke the engine, and persist completed operations.
+
+        Returns:
+            The raw engine snapshot as state, the session's engine metadata, and
+            the parameters sent to the engine.
+        """
         with self._lock:
             session = self._sessions.get(session_id)
             if session is None:
@@ -241,30 +254,26 @@ class SessionManager:
                 self._sessions.pop(session_id)
                 self._record_failure(session.run_dir, operation, error, session.process)
                 raise
-            return {"session_id": session_id, "state": result, **parameters}
+            return {"state": result, "metadata": session.metadata, **parameters}
 
     def close(self, session_id: str) -> dict[str, Any]:
         """Reap one process and finalize artifacts; repeated close is harmless.
 
         Returns:
-            Session ID and closed=True if a live session was removed, otherwise
-            closed=False. Previously saved artifacts are retained in both cases.
+            closed=True if a live session was removed, otherwise closed=False.
+            Previously saved artifacts are retained in both cases.
         """
         with self._lock:
             session = self._sessions.pop(session_id, None)
             if session is None:
-                return {"session_id": session_id, "closed": False}
+                return {"closed": False}
             try:
                 session.process.close()
                 self._save(session_id, session, "closed")
             except Exception as error:
                 self._record_failure(session.run_dir, "close", error, session.process)
                 raise
-            return {
-                "session_id": session_id,
-                "closed": True,
-                "run_dir": str(session.run_dir)
-            }
+            return {"closed": True}
 
     def close_all(self) -> None:
         """Close every session on disconnect, continuing after individual failures."""

@@ -263,7 +263,7 @@ static cJSON* Snapshot(SimulationEngineSession* simulation_session, const char* 
     return Error(operation, -1, "Engine returned non-finite output");
   }
   cJSON_AddNumberToObject(result, "time", simulation_session->time);
-  cJSON_AddNumberToObject(result, "completed_steps", simulation_session->completed_steps);
+  cJSON_AddNumberToObject(result, "total_steps", simulation_session->total_steps);
   if (!simulation_session->is_onnx)
     cJSON_AddNumberToObject(result, "pH", output->pH);
   else
@@ -282,7 +282,7 @@ static cJSON* Snapshot(SimulationEngineSession* simulation_session, const char* 
  * Extracts and validates boundary constraints for physical properties (temperature, pressure, porosity, etc.).
  * Verifies read permissions for the chemistry input file before bootstrapping the underlying Alquimia 
  * interface. Upon successful engine initialization, allocates internal data structures and returns 
- * problem metadata including primary species names, mineral names, and reference units.
+ * problem metadata: primary species and mineral names, the order of snapshot vectors.
  */
 static cJSON* Setup(SimulationEngineSession* simulation_session, const cJSON* request) 
 {
@@ -366,15 +366,8 @@ static cJSON* Setup(SimulationEngineSession* simulation_session, const cJSON* re
   cJSON_AddItemToObject(result, "minerals", meta->mineral_names.size ?
       cJSON_CreateStringArray((const char* const*)meta->mineral_names.data,
                               meta->mineral_names.size) : cJSON_CreateArray());
-  cJSON_AddBoolToObject(result, "has_pH", !simulation_session->is_onnx);
-  cJSON* units = cJSON_AddObjectToObject(result, "units");
-  cJSON_AddStringToObject(units, "total_mobile", "mol/L water");
-  cJSON_AddStringToObject(units, "total_immobile", "mol/m^3 bulk");
-  cJSON_AddStringToObject(units, "mineral_volume_fraction", "m^3 mineral/m^3 bulk");
-  cJSON_AddStringToObject(units, "pH", "dimensionless");
-  cJSON_AddStringToObject(units, "time", "s");
-  cJSON_AddStringToObject(units, "temperature_celsius", "degC");
-  cJSON_AddStringToObject(units, "porosity", "dimensionless");
+  // Only engine output is returned; snapshot vectors use AlquimiaState units
+  // (alquimia_containers.h), which the MCP server describes to clients.
   return Success(result);
 }
 
@@ -442,7 +435,7 @@ cJSON* Execute(SimulationEngineSession* simulation_session, const cJSON* request
     if (simulation_session->time + dt == simulation_session->time ||
         !isfinite(simulation_session->time + dt * max_steps))
       return Error(operation, -1, "dt is too small or too large to advance the simulation time");
-    if (max_steps > INT_MAX - simulation_session->completed_steps)
+    if (max_steps > INT_MAX - simulation_session->total_steps)
       return Error(operation, -1, "Session step count would overflow");
     
     // Reaction loop
@@ -472,7 +465,7 @@ cJSON* Execute(SimulationEngineSession* simulation_session, const cJSON* request
         return Error(operation, -1, message);
       }
       simulation_session->time += dt;
-      ++simulation_session->completed_steps;
+      ++simulation_session->total_steps;
       // The final step's refresh is shared with initialize below
       if (step < max_steps && !RefreshAuxiliaryOutput(simulation_session))
         return EngineError(simulation_session, operation);

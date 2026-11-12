@@ -4,7 +4,6 @@ import argparse
 from contextlib import asynccontextmanager
 from pathlib import Path
 import subprocess
-from typing import Any
 
 import anyio
 from mcp.server.mcpserver import MCPServer
@@ -14,6 +13,7 @@ from pydantic import ConfigDict, ValidationError
 
 from .case_catalog import get_chemistry as describe_chemistry
 from .case_registry import get_case
+from .response_contract import to_json
 from .manual_search import ManualIndex, SearchCollection, SearchLimit, SearchQuery
 from .session_manager import SessionManager, list_cases as describe_cases
 from .setup_request import Engine, SetupRequest
@@ -121,24 +121,24 @@ def create_server(manager: SessionManager, manual_index: Path | None = None) -> 
         openWorldHint=False # Confined to the local sandbox.
     )
 
-    async def invoke(function, *args):
-        """Run a sequential native operation without blocking the MCP event loop."""
+    async def invoke(function, *args) -> str:
+        """Run an operation off the MCP event loop; returns its result as compact JSON."""
         try:
             # The default cancellation shielding keeps ownership until the native
             # call returns or times out, allowing lifespan cleanup to reap it.
-            return await anyio.to_thread.run_sync(function, *args)
+            return to_json(await anyio.to_thread.run_sync(function, *args))
         except ValidationError as error:
             raise ToolError(describe_validation_error(error)) from error
         except (EngineProcessError, OSError, ValueError, subprocess.TimeoutExpired) as error:
             raise ToolError(str(error)) from error
 
-    @server.tool(annotations=read_only)
-    async def list_cases() -> dict[str, Any]:
+    @server.tool(structured_output=False, annotations=read_only)
+    async def list_cases() -> str:
         """List supported cases and benchmark defaults without launching engines."""
-        return describe_cases(manager.repository)
+        return await invoke(describe_cases, manager.repository)
 
-    @server.tool(annotations=read_only)
-    async def get_chemistry(case: str, engine: Engine) -> dict[str, Any]:
+    @server.tool(structured_output=False, annotations=read_only)
+    async def get_chemistry(case: str, engine: Engine) -> str:
         """Show an engine input's initial chemistry: species constraints, minerals and rates.
 
         Values use the listed units, the same on every engine; a null value cannot be
@@ -154,12 +154,12 @@ def create_server(manager: SessionManager, manual_index: Path | None = None) -> 
         return await invoke(
             lambda: describe_chemistry(manager.repository, get_case(case), engine))
 
-    @server.tool(annotations=mutating)
+    @server.tool(structured_output=False, annotations=mutating)
     async def setup(
         case: str,
         engine: Engine,
         request: SetupRequest | None = None
-    ) -> dict[str, Any]:
+    ) -> str:
         """Stage a case for one engine and create a session; returns session_id, setup and metadata.
 
         Args:
@@ -172,16 +172,16 @@ def create_server(manager: SessionManager, manual_index: Path | None = None) -> 
         """
         return await invoke(manager.setup, case, engine, request)
 
-    @server.tool(annotations=mutating)
-    async def initialize(session_id: str) -> dict[str, Any]:
+    @server.tool(structured_output=False, annotations=mutating)
+    async def initialize(session_id: str) -> str:
         """Apply the session's initial condition once; returns its initial state."""
         return await invoke(manager.initialize, session_id)
 
-    @server.tool(annotations=mutating)
+    @server.tool(structured_output=False, annotations=mutating)
     async def react(
         session_id: str,
         time_config: TimeConfigRequest | None = None
-    ) -> dict[str, Any]:
+    ) -> str:
         """Run max_steps reaction steps of dt seconds; repeated calls continue the state.
 
         Returns status, time_step (dt), steps_executed, current_time (s) and the final state.
@@ -194,28 +194,28 @@ def create_server(manager: SessionManager, manual_index: Path | None = None) -> 
         """
         return await invoke(manager.react, session_id, time_config)
 
-    @server.tool(annotations=read_only)
-    async def get_results(session_id: str) -> dict[str, Any]:
+    @server.tool(structured_output=False, annotations=read_only)
+    async def get_results(session_id: str) -> str:
         """Read the latest initialized state without advancing time or chemistry."""
         return await invoke(manager.get_results, session_id)
 
-    @server.tool(annotations=ToolAnnotations(
+    @server.tool(structured_output=False, annotations=ToolAnnotations(
             readOnlyHint=False, # With manual confirmation
             destructiveHint=False,  # Changes state, but does not destroy data
             idempotentHint=True,
             openWorldHint=False # Confined to the local sandbox.
         )
     )
-    async def close(session_id: str) -> dict[str, Any]:
+    async def close(session_id: str) -> str:
         """Close and reap a session, retaining artifacts; repeated calls are harmless."""
         return await invoke(manager.close, session_id)
 
-    @server.tool(annotations=read_only)
+    @server.tool(structured_output=False, annotations=read_only)
     async def search_docs(
         query: SearchQuery,
         collection: SearchCollection = None,
         limit: SearchLimit = 5,
-    ) -> dict[str, Any]:
+    ) -> str:
         """Search the engine manuals and Alquimia known issues; returns ranked section snippets.
 
         Args:
@@ -225,8 +225,8 @@ def create_server(manager: SessionManager, manual_index: Path | None = None) -> 
         """
         return await invoke(manuals.search, query, collection, limit)
 
-    @server.tool(annotations=read_only)
-    async def read_doc(doc_id: str) -> dict[str, Any]:
+    @server.tool(structured_output=False, annotations=read_only)
+    async def read_doc(doc_id: str) -> str:
         """Return the full text of one manual section by a doc_id from search_docs."""
         return await invoke(manuals.read_section, doc_id)
 
