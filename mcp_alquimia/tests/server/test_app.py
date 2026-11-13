@@ -13,9 +13,9 @@ import anyio
 from mcp import Client
 import pytest
 
-from mcp_alquimia.mcp_server import create_server
-from mcp_alquimia.session_manager import SessionManager
-from mcp_alquimia.subprocess_client import EngineProcessError
+from mcp_alquimia.server.app import create_server
+from mcp_alquimia.simulation.sessions import SessionManager
+from mcp_alquimia.simulation.engine_client import EngineProcessError
 
 
 @pytest.fixture
@@ -61,7 +61,7 @@ class FakeEngineProcess:
 @pytest.fixture
 def manager(monkeypatch, repository_root, tmp_path):
     """Provide an isolated session owner using fake native processes."""
-    monkeypatch.setattr("mcp_alquimia.session_manager.AlquimiaEngineProcess", FakeEngineProcess)
+    monkeypatch.setattr("mcp_alquimia.simulation.sessions.AlquimiaEngineProcess", FakeEngineProcess)
     monkeypatch.setattr(FakeEngineProcess, "instances", [])
     monkeypatch.setattr(FakeEngineProcess, "fail_operation", None)
     return SessionManager(
@@ -507,7 +507,7 @@ async def test_unknown_tool_arguments_are_rejected(manager):
 @pytest.mark.anyio
 async def test_validation_error_becomes_tool_error_with_field_details(manager, monkeypatch):
     """A ValidationError raised behind the tool boundary is reported, not a crash."""
-    from mcp_alquimia.time_config_request import TimeConfigRequest
+    from mcp_alquimia.requests.time_config import TimeConfigRequest
 
     def react(session_id, time_config):
         TimeConfigRequest.model_validate({"dt": -1, "extra": 1})

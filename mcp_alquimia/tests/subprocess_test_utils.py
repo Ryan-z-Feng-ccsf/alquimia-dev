@@ -9,9 +9,9 @@ import subprocess
 
 import pytest
 
-from mcp_alquimia.case_registry import CaseSpec, EngineInput, get_case
+from mcp_alquimia.cases.registry import CaseSpec, EngineInput, get_case
 from run_batch_chem_case import prepare_case, run_batch_chem_case
-from mcp_alquimia.setup_request import SetupRequest
+from mcp_alquimia.requests.setup import SetupRequest
 
 # ONNX models are not served by list_cases; this mirrors ex8-nn-batch1.cfg for tests.
 ONNX_EX8 = CaseSpec(

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from mcp_alquimia.subprocess_client import AlquimiaEngineProcess, EngineProcessError
+from mcp_alquimia.simulation.engine_client import AlquimiaEngineProcess, EngineProcessError
 
 
 @pytest.mark.parametrize("options", [

@@ -3,8 +3,8 @@
 from mcp.server.mcpserver import MCPServer
 import pytest
 
-from mcp_alquimia.tool_protocol import prepare_tool_schemas
-from mcp_alquimia.tool_schema import compact_schema, split_docstring
+from mcp_alquimia.server.protocol import prepare_tool_schemas
+from mcp_alquimia.server.schema import compact_schema, split_docstring
 
 
 def test_docstring_summary_and_args_are_split():

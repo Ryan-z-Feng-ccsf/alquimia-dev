@@ -2,7 +2,7 @@
 
 import pytest
 
-from mcp_alquimia.response_contract import shape_snapshot, shape_state, to_json
+from mcp_alquimia.response.contract import shape_snapshot, shape_state, to_json
 
 METADATA = {"primary_species": ["H+", "HCO3-", "Ca++"], "minerals": ["Calcite"]}
 RAW = {

@@ -6,7 +6,7 @@ import shutil
 import pytest
 
 from run_batch_chem_case import prepare_case
-from mcp_alquimia.subprocess_client import AlquimiaEngineProcess, EngineCommandError
+from mcp_alquimia.simulation.engine_client import AlquimiaEngineProcess, EngineCommandError
 from subprocess_test_utils import ONNX_EX8, assert_history_matches_driver, run_original_driver
 
 

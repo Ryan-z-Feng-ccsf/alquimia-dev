@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from mcp_alquimia.utils.paths import find_repository
 from subprocess_test_utils import ENGINE_CASES
 
 
@@ -26,7 +27,17 @@ def repository_root():
     Returns:
         Path: Absolute repository root.
     """
-    return Path(__file__).resolve().parents[2]
+    return find_repository(Path(__file__))
+
+
+@pytest.fixture(scope="session")
+def project_root():
+    """Return the mcp_alquimia project holding containers/, build_tools/ and tests/.
+
+    Returns:
+        Path: Absolute project directory.
+    """
+    return Path(__file__).resolve().parents[1]
 
 
 def require_executable(path: Path, instruction: str):

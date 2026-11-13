@@ -6,15 +6,15 @@ import re
 from pydantic import BaseModel, ValidationError
 import pytest
 
-from mcp_alquimia.agent_input_coercion import (
+from mcp_alquimia.requests.coercion import (
     coerce_float,
     coerce_int,
     lenient_float,
     lenient_int,
     strip_name_quotes,
 )
-from mcp_alquimia.setup_request import SetupRequest
-from mcp_alquimia.time_config_request import TimeConfigRequest
+from mcp_alquimia.requests.setup import SetupRequest
+from mcp_alquimia.requests.time_config import TimeConfigRequest
 
 
 @pytest.mark.parametrize(

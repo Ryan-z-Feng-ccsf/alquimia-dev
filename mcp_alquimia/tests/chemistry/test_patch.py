@@ -4,8 +4,9 @@ import difflib
 
 import pytest
 
-from mcp_alquimia.chemistry_patch import InputDocument, patch_chemistry, read_chemistry
-from mcp_alquimia.setup_request import ChemistryRequest
+from mcp_alquimia.chemistry.input_document import InputDocument
+from mcp_alquimia.chemistry.patch import patch_chemistry, read_chemistry
+from mcp_alquimia.requests.setup import ChemistryRequest
 
 DENSITY = 997.16
 

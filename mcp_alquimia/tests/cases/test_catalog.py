@@ -6,12 +6,12 @@ import pytest
 
 from pydantic import ValidationError
 
-from mcp_alquimia.case_catalog import (
+from mcp_alquimia.cases.catalog import (
     build_setup, get_chemistry, list_cases, missing_files, referenced_files,
     stage_case)
-from mcp_alquimia.case_registry import CASES, CaseSpec, EngineInput, get_case
-from mcp_alquimia.setup_request import SetupRequest
-from mcp_alquimia.time_config_request import TimeConfigRequest
+from mcp_alquimia.cases.registry import CASES, CaseSpec, EngineInput, get_case
+from mcp_alquimia.requests.setup import SetupRequest
+from mcp_alquimia.requests.time_config import TimeConfigRequest
 
 CASE = CaseSpec("case", (EngineInput("CrunchFlow", "case.in"),))
 

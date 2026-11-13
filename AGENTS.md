@@ -65,7 +65,7 @@ The codebase generally follows the **Google C++ Style Guide**, but with C idioms
 - **Indentation:** 2 spaces. No tabs.
 - **File Encoding:** UTF-8.
 - **Line Length:** Try to keep lines under 80-100 characters, though not strictly enforced.
-- **File and folder names:** Use descriptive names that identify the component's role and, for case-specific code, the chemistry engine and scenario. For example, use `subprocess_client.py`, `run_pflotran_calcite.py`, and `engine_process/alquimia_engine_process.c` instead of generic names such as `helpers.py`, `calcite.py`, and `native/`.
+- **File and folder names:** Use descriptive names that identify the component's role and, for case-specific code, the chemistry engine and scenario. For example, use `simulation/engine_client.py`, `run_pflotran_calcite.py`, and `engine_process/alquimia_engine_process.c` instead of generic names such as `helpers.py`, `calcite.py`, and `native/`.
 - **Generated artifacts:** Keep MCP executables and test reports under the repository's `build/mcp_alquimia/` directory, outside the `mcp_alquimia/` source package.
 
 ### C / C++

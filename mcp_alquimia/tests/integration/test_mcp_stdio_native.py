@@ -34,7 +34,7 @@ def server_parameters(repository_root, engine_process_executable, tmp_path):
     parameters = StdioServerParameters(
         command=sys.executable,
         args=[
-            "-m", "mcp_alquimia.mcp_server",
+            "-m", "mcp_alquimia.server.app",
             "--repository", str(repository_root),
             "--executable", str(engine_process_executable),
             "--run-root", str(tmp_path / "runs")

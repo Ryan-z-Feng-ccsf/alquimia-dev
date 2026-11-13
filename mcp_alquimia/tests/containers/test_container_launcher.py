@@ -1,15 +1,14 @@
 """Check stdio container launch arguments without needing a Docker daemon."""
 
 import importlib.util
-from pathlib import Path
 
 import pytest
 
 
 @pytest.fixture
-def launcher():
+def launcher(project_root):
     """Load the standalone launcher, which has no MCP package dependencies."""
-    path = Path(__file__).resolve().parents[1] / "containers/run_container.py"
+    path = project_root / "containers/run_container.py"
     spec = importlib.util.spec_from_file_location("alquimia_container_launcher", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -51,9 +50,9 @@ def test_launcher_refuses_rootful_daemon(launcher, monkeypatch, tmp_path):
 
 
 @pytest.fixture
-def rootful_launcher():
+def rootful_launcher(project_root):
     """Load the standalone rootful launcher."""
-    path = Path(__file__).resolve().parents[1] / "containers/run_container_rootful.py"
+    path = project_root / "containers/run_container_rootful.py"
     spec = importlib.util.spec_from_file_location("alquimia_rootful_launcher", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

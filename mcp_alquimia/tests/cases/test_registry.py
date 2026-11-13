@@ -5,7 +5,7 @@ import re
 
 import pytest
 
-from mcp_alquimia.case_registry import CASES, ENGINES
+from mcp_alquimia.cases.registry import CASES, ENGINES
 
 # The driver cfg each registered engine input was copied from
 CFG = {

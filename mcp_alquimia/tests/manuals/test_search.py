@@ -10,9 +10,9 @@ import anyio
 from mcp import Client
 import pytest
 
-from mcp_alquimia.manual_search import MAX_SECTION_CHARS, ManualIndex
-from mcp_alquimia.mcp_server import create_server
-from mcp_alquimia.session_manager import SessionManager
+from mcp_alquimia.manuals.search import MAX_SECTION_CHARS, ManualIndex
+from mcp_alquimia.server.app import create_server
+from mcp_alquimia.simulation.sessions import SessionManager
 
 
 PFLOTRAN_RST = """\
@@ -57,9 +57,9 @@ def anyio_backend():
 
 
 @pytest.fixture(scope="module")
-def builder():
+def builder(project_root):
     """Load the standalone index builder, which has no MCP package dependencies."""
-    path = Path(__file__).resolve().parents[1] / "build_tools/build_manual_index.py"
+    path = project_root / "build_tools/build_manual_index.py"
     spec = importlib.util.spec_from_file_location("build_manual_index", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
