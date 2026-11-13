@@ -324,13 +324,51 @@ async def test_setup_schema_exposes_the_typed_request(manager):
         assert request["properties"]["temperature"]["type"] == "number"
         assert schema["$defs"]["ChemistryRequest"]["properties"]["aqueous"][
             "additionalProperties"]["type"] == "number"
+        # Optional fields are advertised as their type; omitting them means "no change"
         time_config = tools["react"].input_schema["$defs"]["TimeConfigRequest"]["properties"]
-        assert [option["type"] for option in time_config["dt"]["anyOf"]] == ["number", "null"]
-        assert [option["type"] for option in time_config["max_steps"]["anyOf"]] == [
-            "integer", "null"]
+        assert time_config["dt"] == {
+            "exclusiveMinimum": 0,
+            "type": "number",
+            "description": "Seconds per reaction step."
+        }
+        assert (time_config["max_steps"]["type"], time_config["max_steps"]["maximum"]) == (
+            "integer", 10000)
+        # Ranges use standard JSON Schema keywords
+        assert request["properties"]["porosity"]["exclusiveMinimum"] == 0
+        assert request["properties"]["porosity"]["maximum"] == 1
         assert schema["properties"]["engine"]["enum"] == ["PFloTran", "CrunchFlow"]
         assert request["additionalProperties"] is False
         assert "request" not in schema.get("required", [])
+
+
+@pytest.mark.anyio
+async def test_tools_are_described_from_docstrings_only(manager):
+    """The model sees each docstring's summary and Args, and no developer notes or titles."""
+
+    def keys(node):
+        """Every key anywhere in a schema, skipping the names in properties and $defs."""
+        if isinstance(node, list):
+            return set().union(*map(keys, node)) if node else set()
+        if not isinstance(node, dict):
+            return set()
+        found = set()
+        for key, value in node.items():
+            found.add(key)
+            values = value.values() if key in ("properties", "$defs") else [value]
+            found |= set().union(*map(keys, values)) if values else set()
+        return found
+
+    async with Client(create_server(manager)) as client:
+        for tool in (await client.list_tools()).tools:
+            assert "\n" not in tool.description and "Args:" not in tool.description, tool.name
+            for name, parameter in tool.input_schema.get("properties", {}).items():
+                assert parameter.get("description"), (tool.name, name)
+            assert not keys(tool.input_schema) & {"title", "gt", "ge", "lt", "le", "propertyNames"}
+        tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+        setup_request = tools["setup"].input_schema["$defs"]["SetupRequest"]
+        # Developer rationale below a model docstring's first paragraph is not sent
+        assert setup_request["description"] == "Session settings; omitted fields keep the defaults shown."
+        assert "doc_id" in tools["read_doc"].input_schema["properties"]["doc_id"]["description"]
 
 
 @pytest.mark.anyio
