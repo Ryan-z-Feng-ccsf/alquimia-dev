@@ -8,12 +8,12 @@ import sqlite3
 import subprocess
 import tempfile
 
-# Must match Collection in src/mcp_alquimia/manual_search.py.
+# Must match Collection in src/mcp_alquimia/manuals/search.py.
 COLLECTIONS = ("pflotran", "crunchflow", "alquimia")
 SUFFIXES = (".rst", ".md", ".txt", ".pdf")
 
 # Sections longer than this are split on paragraph boundaries into numbered parts;
-# it stays below manual_search.MAX_SECTION_CHARS so read_doc returns whole parts.
+# it stays below manuals.search.MAX_SECTION_CHARS so read_doc returns whole parts.
 SPLIT_CHARS = 6000
 
 # Catch the .rst adornment ===, ---, etc

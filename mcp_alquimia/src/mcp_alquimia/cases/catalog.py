@@ -1,6 +1,6 @@
 """Describe registered cases and stage one engine's input for an engine process.
 
-Cases are defined in case_registry. Files an input depends on (chemical
+Cases are defined in cases.registry. Files an input depends on (chemical
 databases, ONNX models) are read from the input itself, and chemistry changes
 are written into the staged copy, never into the benchmark.
 """
@@ -13,11 +13,12 @@ import re
 import shutil
 from typing import Any
 
-from .case_registry import CASES, CaseSpec, EngineInput
-from .chemistry_patch import UNITS, patch_chemistry, read_chemistry
-from .setup_request import SetupRequest
+from ..chemistry.patch import patch_chemistry, read_chemistry
+from ..requests.setup import SetupRequest
+from ..utils.paths import BATCH_CHEM_DIR
+from ..utils.units import CHEMISTRY_UNITS
+from .registry import CASES, CaseSpec, EngineInput
 
-BATCH_CHEM_DIR = "benchmarks/batch_chem"
 
 # PFLOTRAN "DATABASE ./x.dat" and CrunchFlow "database x.dbs" / "kinetic_database x.dbsx".
 # Requiring whitespace after the keyword excludes "database_sweep".
@@ -181,7 +182,7 @@ def get_chemistry(repository: str | Path, spec: CaseSpec, engine: str) -> dict[s
     return {
         "case": spec.name,
         "engine": engine_input.engine,
-        "units": UNITS,
+        "units": CHEMISTRY_UNITS,
         **read_chemistry(
             input_path(repository, engine_input),
             engine_input.engine,

@@ -6,22 +6,14 @@ schema stays `number`/`integer` while such inputs are still accepted. Booleans,
 text with units, and non-finite values are left for the strict checks to reject.
 """
 
-import math
 from typing import Annotated, Any
 
 from pydantic import BeforeValidator, Field
 
+from ..utils.numerics import parse_number
+
 # Catch ` | ' | "
 _NAME_QUOTES = ("`", "'", '"')
-
-
-def parse_number(token: str) -> float | None:
-    """Read a Fortran-style real such as 1.d-5; None if the token is not a finite number."""
-    try:
-        value = float(token.replace("d", "e").replace("D", "E"))
-    except ValueError:
-        return None
-    return value if math.isfinite(value) else None
 
 
 def coerce_float(value: Any) -> Any:

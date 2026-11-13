@@ -3,7 +3,7 @@
 
 def main() -> None:
     """Run the local Alquimia MCP server over stdio."""
-    from .mcp_server import main as run_server
+    from .server.app import main as run_server
 
     run_server()
 

@@ -129,7 +129,7 @@ are not used, IF-C:2310, 2312).
 
 Engines: PFLOTRAN and CrunchFlow. The MCP stops at the first non-converged step
 (`helpers.c:465-473`) and the Python session manager drops the session on any error
-(`mcp_alquimia/src/mcp_alquimia/session_manager.py:231-234`). Steps completed earlier in the
+(`SessionManager._request` in `mcp_alquimia/src/mcp_alquimia/simulation/sessions.py`). Steps completed earlier in the
 same `react` call are not returned. The MCP does not cut dt or retry.
 
 - PFLOTRAN halves dt internally up to 10 times (`reaction_aux.F90:427`), then calls Fortran
@@ -168,7 +168,7 @@ The session ends with little detail; check `engine_output.log` in the session ru
 ### An invalid initial_condition passes setup and fails at initialize
 
 `initial_condition` is not validated at setup
-(`mcp_alquimia/src/mcp_alquimia/case_catalog.py:293-297`). The `*-ac-*` cases name an empty
+(`mcp_alquimia/src/mcp_alquimia/cases/catalog.py`). The `*-ac-*` cases name an empty
 `driver_ic` condition and require `initial_condition` in the setup request; use a condition
 name defined in the input file (for example `initial`). PFLOTRAN then fails at initialize with
 "Could not find pflotran constraint" (IF-P:440-444) and the session ends.
@@ -221,7 +221,7 @@ reference output produced by BatchChemDriver; pass `dt = 0.1` to reproduce it.
 
 `ion-exchange-valocchi-ac-crunch.cfg` has the typo `timstep` and a `[material_properties]`
 section instead of `[material]`, so it fails to load and is skipped with only a log warning
-(`case_catalog.py:184-185`).
+(`cases/catalog.py`).
 
 ## ONNX surrogate models
 

@@ -9,23 +9,7 @@ setup instead of in every response.
 import json
 from typing import Any
 
-# Significant digits kept for state and input chemistry values.
-SIGNIFICANT_DIGITS = 6
-# pH is reported to a fixed number of decimals rather than significant digits.
-PH_DECIMALS = 3
-
-# Units of every field in setup, initialize, react and get_results responses.
-RESPONSE_UNITS = {
-    "temperature": "degC",
-    "density": "kg/m^3",
-    "pressure": "Pa",
-    "volume": "m^3",
-    "time": "s",
-    "dt": "s",
-    "aqueous_total": "mol/L water",
-    "immobile_total": "mol/m^3 bulk",
-    "mineral_volume_fraction": "m^3 mineral/m^3 bulk",
-}
+from ..utils.numerics import PH_DECIMALS, round_significant
 
 # Response group, raw state vector, and the metadata list naming its entries.
 _NAMED_GROUPS = (
@@ -33,11 +17,6 @@ _NAMED_GROUPS = (
     ("immobile_total", "total_immobile", "primary_species"),
     ("mineral_volume_fraction", "mineral_volume_fraction", "minerals"),
 )
-
-
-def round_significant(value: float) -> float:
-    """Round a value to SIGNIFICANT_DIGITS significant digits."""
-    return float(f"{value:.{SIGNIFICANT_DIGITS}g}")
 
 
 def to_json(payload: dict[str, Any]) -> str:

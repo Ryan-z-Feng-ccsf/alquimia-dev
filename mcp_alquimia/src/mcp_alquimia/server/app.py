@@ -7,11 +7,12 @@ from pathlib import Path
 import anyio
 from mcp.server.mcpserver import MCPServer
 
-from .manual_search import ManualIndex
+from ..manuals.search import ManualIndex
+from ..simulation.sessions import SessionManager
+from ..utils.paths import find_repository
 from .manual_tools import register_manual_tools
-from .session_manager import SessionManager
+from .protocol import prepare_tool_schemas
 from .simulation_tools import register_simulation_tools
-from .tool_protocol import prepare_tool_schemas
 
 # Loaded by clients on every turn: when to use the server and the call order only;
 # each tool's own description carries its arguments and return fields.
@@ -69,12 +70,11 @@ def create_server(manager: SessionManager, manual_index: Path | None = None) -> 
 
 def main() -> None:
     """Run the local stdio MCP server using an explicitly precompiled runtime."""
-    root = Path(__file__).resolve().parents[3]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--repository",
         type=Path,
-        default=root
+        help="Alquimia checkout (default: found above this package, then the working directory)"
     )
     parser.add_argument(
         "--executable",
@@ -103,7 +103,10 @@ def main() -> None:
         help="Maximum simultaneously open sessions, each with one engine process"
     )
     args = parser.parse_args()
-    repository = args.repository.resolve()
+    try:
+        repository = (args.repository or find_repository(Path(__file__), Path.cwd())).resolve()
+    except FileNotFoundError as error:
+        parser.error(str(error))
     try:
         manager = SessionManager(
             repository,

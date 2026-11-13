@@ -2,8 +2,8 @@
 
 from mcp.server.mcpserver import MCPServer
 
-from .manual_search import ManualIndex, SearchCollection, SearchLimit, SearchQuery
-from .tool_protocol import READ_ONLY, invoke
+from ..manuals.search import ManualIndex, SearchCollection, SearchLimit, SearchQuery
+from .protocol import READ_ONLY, invoke
 
 
 def register_manual_tools(server: MCPServer, manuals: ManualIndex) -> None:

@@ -4,7 +4,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .agent_input_coercion import lenient_float, lenient_int
+from .coercion import lenient_float, lenient_int
 
 # Mirrors kMaxReactSteps in engine_process/alquimia_engine_process_helpers.c.
 MAX_REACT_STEPS = 10000

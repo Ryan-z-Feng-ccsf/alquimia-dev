@@ -8,9 +8,9 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import ConfigDict, ValidationError
 
-from .response_contract import to_json
-from .subprocess_client import EngineProcessError
-from .tool_schema import compact_schema, split_docstring
+from ..response.contract import to_json
+from ..simulation.engine_client import EngineProcessError
+from .schema import compact_schema, split_docstring
 
 # Safe and harmless. Does not modify any system state (e.g., fetching lists, reading results).
 READ_ONLY = ToolAnnotations(

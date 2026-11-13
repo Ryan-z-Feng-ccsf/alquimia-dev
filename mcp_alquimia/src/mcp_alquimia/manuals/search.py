@@ -14,7 +14,7 @@ Collection = Literal["pflotran", "crunchflow", "alquimia"]
 COLLECTIONS: tuple[str, ...] = get_args(Collection)
 
 # search_docs arguments, validated before the index is opened.
-# Tool parameters are described by the search_docs docstring Args (tool_schema)
+# Tool parameters are described by the search_docs docstring Args (server.schema)
 SearchQuery = Annotated[str, Field(min_length=1, max_length=500, pattern=r"\w")]
 SearchCollection = Collection | None
 SearchLimit = Annotated[int, Field(ge=1, le=20)]

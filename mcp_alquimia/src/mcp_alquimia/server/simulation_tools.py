@@ -2,12 +2,12 @@
 
 from mcp.server.mcpserver import MCPServer
 
-from .case_catalog import get_chemistry as describe_chemistry
-from .case_registry import get_case
-from .session_manager import SessionManager, list_cases as describe_cases
-from .setup_request import Engine, SetupRequest
-from .time_config_request import TimeConfigRequest
-from .tool_protocol import IDEMPOTENT, MUTATING, READ_ONLY, invoke
+from ..cases.catalog import get_chemistry as describe_chemistry
+from ..cases.registry import get_case
+from ..requests.setup import Engine, SetupRequest
+from ..requests.time_config import TimeConfigRequest
+from ..simulation.sessions import SessionManager, list_cases as describe_cases
+from .protocol import IDEMPOTENT, MUTATING, READ_ONLY, invoke
 
 
 def register_simulation_tools(server: MCPServer, manager: SessionManager) -> None:

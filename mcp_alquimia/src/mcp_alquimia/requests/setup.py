@@ -4,7 +4,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 
-from .agent_input_coercion import lenient_float, strip_name_quotes
+from .coercion import lenient_float, strip_name_quotes
 
 # Ranges mirror the native checks in engine_process/alquimia_engine_process_helpers.c,
 # so a bad request is rejected before any process starts.
@@ -25,7 +25,7 @@ InitialCondition = Annotated[
         description="Name of an initial condition defined in the case's input file."),
 ]
 
-# Tool parameters are described by each tool's docstring Args (tool_schema)
+# Tool parameters are described by each tool's docstring Args (server.schema)
 Engine = Literal["PFloTran", "CrunchFlow"]
 Name = Annotated[str, BeforeValidator(strip_name_quotes), Field(min_length=1, max_length=64)]
 Finite = lenient_float()

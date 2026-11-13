@@ -4,9 +4,9 @@ import argparse
 import json
 from pathlib import Path
 
-from mcp_alquimia.case_catalog import stage_case
-from mcp_alquimia.case_registry import CaseSpec, get_case
-from mcp_alquimia.setup_request import SetupRequest
+from mcp_alquimia.cases.catalog import stage_case
+from mcp_alquimia.cases.registry import CaseSpec, get_case
+from mcp_alquimia.requests.setup import SetupRequest
 
 from case_runner import run_case
 

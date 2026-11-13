@@ -118,7 +118,7 @@ def compact_schema(schema: Any) -> Any:
 
     Drops titles and propertyNames, keeps the first paragraph of descriptions,
     and turns optional ``anyOf: [X, null]`` fields defaulting to null into X.
-    Ranges are left as pydantic writes them; see agent_input_coercion.lenient_float
+    Ranges are left as pydantic writes them; see requests.coercion.lenient_float
     for keeping them standard.
 
     Args:
