@@ -14,22 +14,10 @@ Collection = Literal["pflotran", "crunchflow", "alquimia"]
 COLLECTIONS: tuple[str, ...] = get_args(Collection)
 
 # search_docs arguments, validated before the index is opened.
-SearchQuery = Annotated[
-    str,
-    Field(
-        min_length=1,
-        max_length=500,
-        pattern=r"\w",
-        description='Words or input-file keywords, e.g. "AQUEOUS_KINETICS rate constant"; '
-                    "matching is case-insensitive and stemmed."),
-]
-SearchCollection = Annotated[
-    Collection | None,
-    Field(
-        description='Restrict results to the "pflotran" or "crunchflow" manual, or to '
-                    '"alquimia" known interface issues and limitations; omit to search all.'),
-]
-SearchLimit = Annotated[int, Field(ge=1, le=20, description="Maximum number of sections returned.")]
+# Tool parameters are described by the search_docs docstring Args (tool_schema)
+SearchQuery = Annotated[str, Field(min_length=1, max_length=500, pattern=r"\w")]
+SearchCollection = Collection | None
+SearchLimit = Annotated[int, Field(ge=1, le=20)]
 
 # Section bodies are split near this size at build time; read_section never returns more.
 MAX_SECTION_CHARS = 8000
