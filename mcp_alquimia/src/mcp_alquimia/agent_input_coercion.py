@@ -9,7 +9,7 @@ text with units, and non-finite values are left for the strict checks to reject.
 import math
 from typing import Annotated, Any
 
-from pydantic import BeforeValidator
+from pydantic import BeforeValidator, Field
 
 # Catch ` | ' | "
 _NAME_QUOTES = ("`", "'", '"')
@@ -62,5 +62,25 @@ def strip_name_quotes(value: Any) -> Any:
     return name
 
 
-LenientFloat = Annotated[float, BeforeValidator(coerce_float)]
-LenientInt = Annotated[int, BeforeValidator(coerce_int)]
+def lenient_float(**constraints: Any) -> Any:
+    """A finite float that also accepts numeric strings, with Field constraints.
+
+    The constraints must sit on the float, before the validator: placed on top of
+    a BeforeValidator-wrapped type they are still enforced, but pydantic writes
+    them into the JSON schema as non-standard keys (gt, le) instead of
+    exclusiveMinimum and maximum.
+
+    Args:
+        **constraints: Field arguments such as gt, ge, le.
+    """
+    return Annotated[
+        float, Field(allow_inf_nan=False, **constraints), BeforeValidator(coerce_float)]
+
+
+def lenient_int(**constraints: Any) -> Any:
+    """An int that also accepts numeric strings and integral floats, with Field constraints.
+
+    Args:
+        **constraints: Field arguments such as ge, le; see lenient_float for placement.
+    """
+    return Annotated[int, Field(**constraints), BeforeValidator(coerce_int)]

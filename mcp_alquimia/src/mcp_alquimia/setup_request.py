@@ -4,19 +4,19 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 
-from .agent_input_coercion import LenientFloat, strip_name_quotes
+from .agent_input_coercion import lenient_float, strip_name_quotes
 
 # Ranges mirror the native checks in engine_process/alquimia_engine_process_helpers.c,
 # so a bad request is rejected before any process starts.
-Density = Annotated[LenientFloat, Field(gt=0, allow_inf_nan=False, description="Water density in kg/m^3.")]
+Density = Annotated[lenient_float(gt=0), Field(description="Water density in kg/m^3.")]
 Porosity = Annotated[
-    LenientFloat, Field(gt=0, le=1, allow_inf_nan=False, description="Porosity, dimensionless, in (0, 1].")]
+    lenient_float(gt=0, le=1), Field(description="Porosity, dimensionless, in (0, 1].")]
 Temperature = Annotated[
-    LenientFloat, Field(gt=-273.15, allow_inf_nan=False, description="Temperature in degrees Celsius.")]
-Pressure = Annotated[LenientFloat, Field(gt=0, allow_inf_nan=False, description="Aqueous pressure in Pa.")]
-Volume = Annotated[LenientFloat, Field(gt=0, allow_inf_nan=False, description="Material volume in m^3.")]
+    lenient_float(gt=-273.15), Field(description="Temperature in degrees Celsius.")]
+Pressure = Annotated[lenient_float(gt=0), Field(description="Aqueous pressure in Pa.")]
+Volume = Annotated[lenient_float(gt=0), Field(description="Material volume in m^3.")]
 Saturation = Annotated[
-    LenientFloat, Field(gt=0, le=1, allow_inf_nan=False, description="Water saturation, dimensionless, in (0, 1].")]
+    lenient_float(gt=0, le=1), Field(description="Water saturation, dimensionless, in (0, 1].")]
 InitialCondition = Annotated[
     str,
     Field(
@@ -25,33 +25,29 @@ InitialCondition = Annotated[
         description="Name of an initial condition defined in the case's input file."),
 ]
 
-Engine = Annotated[
-    Literal["PFloTran", "CrunchFlow"],
-    Field(description="Chemistry engine, spelled exactly as list_cases shows it."),
-]
+# Tool parameters are described by each tool's docstring Args (tool_schema)
+Engine = Literal["PFloTran", "CrunchFlow"]
 Name = Annotated[str, BeforeValidator(strip_name_quotes), Field(min_length=1, max_length=64)]
-Finite = Annotated[LenientFloat, Field(allow_inf_nan=False)]
+Finite = lenient_float()
 
 
 class MineralChange(BaseModel):
-    """New values for one mineral of the initial condition; omitted fields are kept."""
+    """New values for one mineral; omitted fields keep their current values."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    volume_fraction: Annotated[LenientFloat, Field(
-        ge=0, le=1, allow_inf_nan=False,
+    volume_fraction: Annotated[lenient_float(ge=0, le=1), Field(
         description="Mineral volume fraction, m^3 mineral/m^3 bulk.")] | None = None
-    surface_area: Annotated[LenientFloat, Field(
-        ge=0, allow_inf_nan=False,
+    surface_area: Annotated[lenient_float(ge=0), Field(
         description="Bulk reactive surface area, m^2 mineral/m^3 bulk.")] | None = None
 
 
 class ChemistryRequest(BaseModel):
-    """Changes to the initial condition and mineral rates, written into the staged input.
+    """Initial-condition and rate changes; get_chemistry gives the names, values and units.
 
-    Values use engine-independent units and are converted to each engine's input
-    units, so one request means the same on every engine of a session. Names and
-    current values come from get_chemistry; a constraint's type is never changed.
+    Changes are written into the staged input. Values use engine-independent units
+    and are converted to each engine's input units, so one request means the same
+    on every engine. A constraint's type is never changed.
     """
 
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -61,7 +57,7 @@ class ChemistryRequest(BaseModel):
         description="Species to new constraint value, in the units get_chemistry reports for "
                     "its constraint: mol/L water (total, free), pH, or bar (gas).")
     minerals: dict[Name, MineralChange] = Field(default_factory=dict)
-    rates: dict[Name, Annotated[LenientFloat, Field(gt=0, allow_inf_nan=False)]] = Field(
+    rates: dict[Name, lenient_float(gt=0)] = Field(
         default_factory=dict,
         description="Mineral to kinetic rate constant in mol/m^2/s (not log10).")
 
@@ -80,7 +76,7 @@ class ChemistryRequest(BaseModel):
 
 
 class SetupRequest(BaseModel):
-    """Session settings; omitted fields keep the defaults shown in this schema.
+    """Session settings; omitted fields keep the defaults shown.
 
     The physical defaults suit a batch benchmark and are the same for every case.
     The input file and engine are deliberately not fields, so a request can never
