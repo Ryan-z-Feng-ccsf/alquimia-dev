@@ -51,11 +51,11 @@ async def test_stdio_native_lifecycle(repository_root, engine_process_executable
     parameters = server_parameters(repository_root, engine_process_executable, tmp_path)
     arguments = {"case": "calcite-short", "engine": engine}
     async with Client(parameters, read_timeout_seconds=30) as client:
-        assert len((await client.list_tools()).tools) == 9
+        assert len((await client.list_tools()).tools) == 7
         setup = payload(await client.call_tool("setup", arguments))
         session_id = setup["session_id"]
-        initialized = payload(await client.call_tool("initialize", {"session_id": session_id}))
-        assert (initialized["time"], initialized["total_steps"]) == (0, 0)
+        # setup applies the initial condition and returns its state
+        assert set(setup["state"]["aqueous_total"]) == {"H+", "HCO3-", "Ca++"}
         # One looped request, then a single step
         for time_config in ({"dt": 1.0, "max_steps": 2}, {"dt": 3.0, "max_steps": 1}):
             reacted = payload(await client.call_tool(
@@ -65,8 +65,6 @@ async def test_stdio_native_lifecycle(repository_root, engine_process_executable
             assert reacted["steps"] == time_config["max_steps"]
         assert (reacted["time"], reacted["total_steps"], reacted["dt"]) == (5, 3, 3.0)
         final = reacted["state"]
-        polled = payload(await client.call_tool("get_results", {"session_id": session_id}))
-        assert polled == {"time": 5, "total_steps": 3, "state": final}
         # Name-keyed, rounded state: pH to 3 decimals, values to 6 significant digits
         assert final["pH"] == round(final["pH"], 3)
         assert set(final["aqueous_total"]) == {"H+", "HCO3-", "Ca++"}
@@ -104,9 +102,7 @@ async def test_stdio_native_chemistry_compared_across_sessions(
                     "setup", {"case": "calcite-short", "engine": engine, "request": request}
                 ))
                 session_id = setup["session_id"]
-                initialized = payload(
-                    await client.call_tool("initialize", {"session_id": session_id}))
-                initial[engine, bool(request)] = initialized["state"]["aqueous_total"]["Ca++"]
+                initial[engine, bool(request)] = setup["state"]["aqueous_total"]["Ca++"]
                 reacted = await client.call_tool(
                     "react", {"session_id": session_id, "time_config": {"max_steps": 2}}
                 )

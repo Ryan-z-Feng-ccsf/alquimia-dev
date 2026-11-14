@@ -94,9 +94,7 @@ async def test_discovery_and_missing_runtime(repository_root, tmp_path):
             "list_cases",
             "get_chemistry",
             "setup",
-            "initialize",
             "react",
-            "get_results",
             "close",
             "search_docs",
             "read_doc"
@@ -127,27 +125,23 @@ async def test_sessions_lifecycle_isolation_and_disconnect(manager):
             "setup", {"case": "calcite-short", "engine": "CrunchFlow"}
         )
         assert limited.is_error and "Session limit" in limited.content[0].text
-        early = await client.call_tool("react", {"session_id": a, "time_config": {"dt": 5}})
-        assert early.is_error
-        assert "Call initialize" in early.content[0].text
-        await call(client, "initialize", session_id=a)
-        await call(client, "initialize", session_id=b)
-        repeated = await client.call_tool("initialize", {"session_id": a})
-        assert repeated.is_error
+        # setup applies the initial condition and returns its state
+        assert first["state"] == {"aqueous_total": {"H": 1.0}}
+        assert set(first["time_config"]) == {"dt", "max_steps"}
+        assert "time" not in first
         # Simultaneous MCP calls must not interleave writes to the same process.
         async with anyio.create_task_group() as group:
             async def react(dt):
                 await call(client, "react", session_id=a, time_config={"dt": dt, "max_steps": 1})
             group.start_soon(react, 2.0)
             group.start_soon(react, 3.0)
-        results = await call(client, "get_results", session_id=a)
-        assert (results["time"], results["total_steps"]) == (5, 2)
-        assert results["state"] == {"aqueous_total": {"H": 1.0}}
-        assert (await call(client, "get_results", session_id=b))["time"] == 0
+        latest = manager._sessions[a].history[-1]
+        assert (latest["time"], latest["total_steps"]) == (5, 2)
+        assert manager._sessions[b].history[-1]["time"] == 0
         assert (await call(client, "close", session_id=a))["closed"] is True
         assert (await call(client, "close", session_id=a))["closed"] is False
-        unknown = await client.call_tool("get_results", {"session_id": a})
-        assert unknown.is_error
+        unknown = await client.call_tool("react", {"session_id": a})
+        assert unknown.is_error and "Unknown or closed" in unknown.content[0].text
         # Closing one session releases its slot.
         await call(client, "setup", case="calcite-short", engine="CrunchFlow")
     assert all(process.closed for process in FakeEngineProcess.instances)
@@ -170,7 +164,6 @@ async def test_invalid_arguments_preserve_session(manager):
         assert not manager.run_root.exists()
         setup = await call(client, "setup", case="calcite-short", engine="PFloTran")
         session_id = setup["session_id"]
-        await call(client, "initialize", session_id=session_id)
         for time_config in ({"dt": -1}, {"dt": 0}, {"dt": True}, {"dt": "5 s"}, {"dt": "inf"},
                             {"max_steps": 0}, {"max_steps": 1.5}, {"max_steps": "1.5"},
                             {"max_steps": True}, {"max_steps": 10001}, {"timestep": 5}):
@@ -178,24 +171,25 @@ async def test_invalid_arguments_preserve_session(manager):
                 "react", {"session_id": session_id, "time_config": time_config})
             assert result.is_error
             assert "time_config" in result.content[0].text
-        assert (await call(client, "get_results", session_id=session_id))["time"] == 0
+        assert manager._sessions[session_id].history[-1]["time"] == 0
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("operation", ["setup", "initialize", "react"])
-async def test_native_failure_releases_session_and_keeps_diagnosis(manager, monkeypatch, operation):
+# initialize runs inside setup, so its failure is reported by the setup call
+@pytest.mark.parametrize(("operation", "tool"), [
+    ("setup", "setup"), ("initialize", "setup"), ("react", "react")])
+async def test_native_failure_releases_session_and_keeps_diagnosis(
+    manager, monkeypatch, operation, tool
+):
     """Failed operations release their slot and preserve engine diagnostics."""
     async with Client(create_server(manager)) as client:
-        if operation == "setup":
+        if tool == "setup":
             arguments = {"case": "calcite-short", "engine": "PFloTran"}
         else:
             setup = await call(client, "setup", case="calcite-short", engine="PFloTran")
-            arguments = {"session_id": setup["session_id"]}
-            if operation == "react":
-                await call(client, "initialize", **arguments)
-                arguments["time_config"] = {"dt": 5}
+            arguments = {"session_id": setup["session_id"], "time_config": {"dt": 5}}
         monkeypatch.setattr(FakeEngineProcess, "fail_operation", operation)
-        result = await client.call_tool(operation, arguments)
+        result = await client.call_tool(tool, arguments)
         assert result.is_error
         assert f"{operation} failed" in result.content[0].text
         assert "engine_output.log" in result.content[0].text
@@ -277,7 +271,15 @@ async def test_setup_request_overrides_and_is_recorded(manager):
             if key not in ("engine", "input_file", "initial_condition")}
         assert (session["case"], session["engine"]) == ("calcite-short", "PFloTran")
         assert session["units"]["aqueous_total"] == "mol/L water"
-        assert set(session) == {"session_id", "case", "engine", "settings", "time", "units"}
+        assert set(session) == {
+            "session_id",
+            "case",
+            "engine",
+            "settings",
+            "time_config",
+            "units",
+            "state"
+        }
         run_dir = manager.run_root / session["session_id"]
         saved = json.loads((run_dir / "simulation_request.json").read_text())
         assert saved["request"] == {"temperature": 60.0, "porosity": 0.3}
@@ -412,7 +414,6 @@ async def test_numeric_strings_and_quoted_names_from_small_models_are_accepted(m
         assert saved["request"]["temperature"] == 60.0
         assert saved["request"]["chemistry"]["aqueous"] == {"Ca++": 1e-10}
         session_id = session["session_id"]
-        await call(client, "initialize", session_id=session_id)
         await call(
             client,
             "react",
@@ -450,9 +451,8 @@ async def test_time_config_overrides_dt_and_max_steps(manager):
     """One react runs max_steps steps of dt in one engine request; overrides persist."""
     async with Client(create_server(manager)) as client:
         session = await call(client, "setup", case="calcite-short", engine="PFloTran")
-        defaults_time_config = session["time"]
+        defaults_time_config = session["time_config"]
         session_id = session["session_id"]
-        await call(client, "initialize", session_id=session_id)
         default_time = defaults_time_config["dt"] * defaults_time_config["max_steps"]
         reacted = await call(client, "react", session_id=session_id)
         assert reacted == {
@@ -491,7 +491,6 @@ async def test_unknown_tool_arguments_are_rejected(manager):
         assert all(tool.input_schema["additionalProperties"] is False for tool in tools.values())
         setup = await call(client, "setup", case="calcite-short", engine="PFloTran")
         session_id = setup["session_id"]
-        await call(client, "initialize", session_id=session_id)
         for extra in ({"dt": 5}, {"timestep": 5}, {"max_steps": 2}):
             result = await client.call_tool("react", {"session_id": session_id, **extra})
             assert result.is_error

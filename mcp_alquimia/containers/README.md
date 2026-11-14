@@ -91,7 +91,7 @@ The snippet picks the variant from the daemon that `docker` currently reaches; t
 
 Codex stops waiting for an MCP tool after 60 seconds by default. For long `react` calls, add `tool_timeout_sec = 600` under `[mcp_servers.alquimia]` in `~/.codex/config.toml`. In either client, start with a request such as "list the alquimia cases, then run calcite-short".
 
-The server marks `list_cases` and `get_results` read-only and the session tools as state-changing, so clients ask before `setup`, `initialize`, `react`, and `close`, and Claude Code's auto mode may refuse them where no project context explains the server. To approve this server's tools once for every directory:
+The server marks `list_cases`, `get_chemistry`, `search_docs` and `read_doc` read-only and the session tools as state-changing, so clients ask before `setup`, `react`, and `close`, and Claude Code's auto mode may refuse them where no project context explains the server. To approve this server's tools once for every directory:
 
 - Claude Code: add `"mcp__alquimia__*"` to `permissions.allow` in `~/.claude/settings.json` (merge it into existing settings), then restart Claude Code. A `.claude/settings.local.json` with the same rule limits approval to one directory.
 

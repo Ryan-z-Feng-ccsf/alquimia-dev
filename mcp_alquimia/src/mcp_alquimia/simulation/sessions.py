@@ -99,7 +99,7 @@ class SessionManager:
         engine: str,
         request: SetupRequest | None = None
     ) -> dict[str, Any]:
-        """Stage one engine's input for a case and start a persistent engine process.
+        """Stage a case's input, start a persistent engine process and initialize it.
 
         Args:
             case: Identifier from list_cases.
@@ -109,14 +109,15 @@ class SessionManager:
 
         Returns:
             session_id, case, engine, setup (the staged settings sent to the
-            engine, including engine, input_file and initial_condition) and time
-            (dt and max_steps). Initialization is a separate operation; setup does not perform a reaction.
+            engine, including engine, input_file and initial_condition),
+            time_config (dt and max_steps), and the initialized raw state with its
+            metadata. No reaction step is run.
 
         Raises:
             ValueError: The case or engine is unknown, the request does not fit the
                 engine's input, or the session limit is reached.
             OSError: The engine process or inputs are missing, or artifact I/O fails.
-            EngineProcessError: Native startup or setup fails.
+            EngineProcessError: Native startup, setup or initialization fails.
         """
         with self._lock:
             spec = get_case(case)
@@ -132,6 +133,7 @@ class SessionManager:
             session_id = uuid.uuid4().hex
             run_dir = self.run_root / session_id
             process = None
+            operation = "setup"
             try:
                 setup = stage_case(self.repository, spec, engine_input, run_dir, request)
                 # Starting dt and max_steps; react's TimeConfigRequest may change them
@@ -150,29 +152,33 @@ class SessionManager:
                 )
                 process = AlquimiaEngineProcess(self.executable, run_dir, self.timeout)
                 metadata = process.request("setup", **setup)
+                operation = "initialize"
+                initial = process.request("initialize")
                 session = SimulationSession(
-                    spec.name, engine_input.engine, run_dir, process, metadata,
-                    time_step_config["dt"], time_step_config["max_steps"])
-                self._save(session_id, session, "ready")
+                    spec.name,
+                    engine_input.engine,
+                    run_dir,
+                    process,
+                    metadata,
+                    time_step_config["dt"],
+                    time_step_config["max_steps"],
+                    [initial]
+                )
+                self._log_operation(run_dir, "initialize", {})
+                self._save(session_id, session, "initialized")
                 self._sessions[session_id] = session
             except Exception as error:
-                self._record_failure(run_dir, "setup", error, process)
+                self._record_failure(run_dir, operation, error, process)
                 raise
             return {
                 "session_id": session_id,
                 "case": spec.name,
                 "engine": engine_input.engine,
                 "setup": setup,
-                "time": time_step_config,
+                "time_config": time_step_config,
+                "state": initial,
+                "metadata": metadata,
             }
-
-    def initialize(self, session_id: str) -> dict[str, Any]:
-        """Apply the case's initial condition once; returns the raw engine result.
-
-        Returns:
-            state (raw engine snapshot) and metadata (primary_species, minerals).
-        """
-        return self._request(session_id, "initialize")
 
     def react(
         self,
@@ -182,7 +188,7 @@ class SessionManager:
         """Run max_steps reaction steps of dt seconds in one engine request.
 
         Args:
-            session_id: Initialized session.
+            session_id: ID returned by setup.
             time_config: Optional validated overrides of the session's dt (seconds)
                 and max_steps (steps per call). Set values persist for later calls
                 once the engine completes them; omitted fields keep the session's
@@ -192,53 +198,27 @@ class SessionManager:
             state (raw engine snapshot after the call), metadata, and the dt
             (seconds) and max_steps the engine ran.
         """
-        return self._request(
-            session_id, "react", time_config=time_config or TimeConfigRequest())
-
-    def get_results(self, session_id: str) -> dict[str, Any]:
-        """Return the latest raw state and metadata without advancing the engine."""
-        return self._request(session_id, "get_results")
-
-    def _request(self, session_id: str, operation: str, **parameters) -> dict[str, Any]:
-        """Validate lifecycle, invoke the engine, and persist completed operations.
-
-        Returns:
-            The raw engine snapshot as state, the session's engine metadata, and
-            the parameters sent to the engine.
-        """
+        time_config = time_config or TimeConfigRequest()
         with self._lock:
             session = self._sessions.get(session_id)
             if session is None:
                 raise ValueError("Unknown or closed session_id; call setup for a new session")
-            if operation == "initialize" and session.history:
-                raise ValueError("Session already initialized")
-            if operation != "initialize" and not session.history:
-                raise ValueError("Call initialize before react or get_results")
-            if operation == "react":
-                # The engine runs max_steps steps of dt in one request
-                parameters = {
-                    "dt": session.dt,
-                    "max_steps": session.max_steps,
-                    **parameters.pop("time_config").overrides(),
-                }
-
+            # The engine runs max_steps steps of dt in one request
+            parameters = {
+                "dt": session.dt,
+                "max_steps": session.max_steps,
+                **time_config.overrides(),
+            }
             try:
-                result = session.process.request(operation, **parameters)
-                if operation != "get_results":
-                    session.history.append(result)
-                    # Append the executed operation to a JSONL audit log for future replay and debugging.
-                    with (session.run_dir / "operations.jsonl").open("a") as stream:
-                        stream.write(json.dumps(
-                            {"operation": operation, **parameters},
-                            allow_nan=False) + "\n"
-                        )
-                    self._save(session_id, session, "initialized")
-                if operation == "react":
-                    # Overrides persist only once the engine has completed them
-                    session.dt, session.max_steps = parameters["dt"], parameters["max_steps"]
+                result = session.process.request("react", **parameters)
+                session.history.append(result)
+                self._log_operation(session.run_dir, "react", parameters)
+                self._save(session_id, session, "initialized")
+                # Overrides persist only once the engine has completed them
+                session.dt, session.max_steps = parameters["dt"], parameters["max_steps"]
             except Exception as error:
                 self._sessions.pop(session_id)
-                self._record_failure(session.run_dir, operation, error, session.process)
+                self._record_failure(session.run_dir, "react", error, session.process)
                 raise
             return {"state": result, "metadata": session.metadata, **parameters}
 
@@ -269,6 +249,12 @@ class SessionManager:
                     self.close(session_id)
                 except Exception:
                     LOGGER.exception("Failed to close Alquimia session %s", session_id)
+
+    @staticmethod
+    def _log_operation(run_dir: Path, operation: str, parameters: dict[str, Any]) -> None:
+        """Append a completed engine operation to the JSONL log kept for replay and debugging."""
+        with (run_dir / "operations.jsonl").open("a") as stream:
+            stream.write(json.dumps({"operation": operation, **parameters}, allow_nan=False) + "\n")
 
     @staticmethod
     def _save(session_id: str, session: SimulationSession, status: str) -> None:

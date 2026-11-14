@@ -32,7 +32,7 @@ CHEMISTRY_UNITS = {
     "rates": "mol/m^2/s",             # Kinetic reaction rate per unit of mineral surface area
 }
 
-# Units of every field in setup, initialize, react and get_results responses.
+# Units of every field in setup and react responses.
 RESPONSE_UNITS = {
     "temperature": "degC",
     "density": "kg/m^3",

@@ -6,7 +6,7 @@ from ..cases.catalog import get_chemistry as describe_chemistry
 from ..cases.registry import get_case
 from ..requests.setup import Engine, SetupRequest
 from ..requests.time_config import TimeConfigRequest
-from ..response.contract import shape_react, shape_setup, shape_snapshot
+from ..response.contract import shape_react, shape_setup
 from ..simulation.sessions import SessionManager, list_cases as describe_cases
 from .protocol import IDEMPOTENT, MUTATING, READ_ONLY, invoke
 
@@ -47,9 +47,9 @@ def register_simulation_tools(server: MCPServer, manager: SessionManager) -> Non
         engine: Engine,
         request: SetupRequest | None = None
     ) -> str:
-        """Create a session running one case on one engine.
-        Returns session_id, the settings in effect, time (dt, max_steps) and the units of
-        all responses. To compare engines, create one session per engine with the same
+        """Create a session running one case on one engine and apply its initial condition.
+        Returns session_id, the settings in effect, time_config (dt, max_steps), the units
+        of all responses, and the initial state. To compare engines, create one session per engine with the same
         request.
 
         The input is staged into the session's run directory, so chemistry changes
@@ -65,15 +65,6 @@ def register_simulation_tools(server: MCPServer, manager: SessionManager) -> Non
         return await invoke(manager.setup, case, engine, request, shape=shape_setup)
 
     @server.tool(structured_output=False, annotations=MUTATING)
-    async def initialize(session_id: str) -> str:
-        """Apply the initial condition, once per session; returns time, total_steps and state.
-
-        Args:
-            session_id: ID returned by setup.
-        """
-        return await invoke(manager.initialize, session_id, shape=shape_snapshot)
-
-    @server.tool(structured_output=False, annotations=MUTATING)
     async def react(
         session_id: str,
         time_config: TimeConfigRequest | None = None
@@ -85,20 +76,11 @@ def register_simulation_tools(server: MCPServer, manager: SessionManager) -> Non
         The engine runs all steps in one request.
 
         Args:
-            session_id: ID returned by setup, after initialize.
+            session_id: ID returned by setup.
             time_config: Optional dt and max_steps overrides; they persist for later
                 react calls.
         """
         return await invoke(manager.react, session_id, time_config, shape=shape_react)
-
-    @server.tool(structured_output=False, annotations=READ_ONLY)
-    async def get_results(session_id: str) -> str:
-        """Return the latest time, total_steps and state without advancing the simulation.
-
-        Args:
-            session_id: ID returned by setup, after initialize.
-        """
-        return await invoke(manager.get_results, session_id, shape=shape_snapshot)
 
     @server.tool(structured_output=False, annotations=IDEMPOTENT)
     async def close(session_id: str) -> str:

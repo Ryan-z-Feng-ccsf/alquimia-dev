@@ -65,10 +65,11 @@ def shape_state(raw: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]
 
 
 def shape_setup(result: dict[str, Any]) -> dict[str, Any]:
-    """The setup response: session identity, physical settings, time and units.
+    """The setup response: session identity, settings, time_config, units, initial state.
 
     Args:
-        result: SessionManager.setup's session_id, case, engine, staged setup and time.
+        result: SessionManager.setup's session_id, case, engine, staged setup,
+            time_config, and the initialized raw state with its metadata.
     """
     return {
         "session_id": result["session_id"],
@@ -78,22 +79,9 @@ def shape_setup(result: dict[str, Any]) -> dict[str, Any]:
             key: value for key, value in result["setup"].items()
             if key not in _SETUP_INTERNALS  # Physical condition
         },
-        "time": result["time"],
+        "time_config": result["time_config"],
         "units": RESPONSE_UNITS,
-    }
-
-
-def shape_snapshot(result: dict[str, Any]) -> dict[str, Any]:
-    """The initialize and get_results response: cumulative time, steps and state.
-
-    Args:
-        result: A SessionManager result with the raw state and its metadata.
-    """
-    raw = result["state"]
-    return {
-        "time": raw["time"],
-        "total_steps": raw["total_steps"],
-        "state": shape_state(raw, result["metadata"]),
+        "state": shape_state(result["state"], result["metadata"]),
     }
 
 

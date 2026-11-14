@@ -48,7 +48,7 @@ async def smoke(image: str, docker_host: str | None, output: Path) -> dict:
     async with Client(StdioServerParameters(command=sys.executable, args=args),
                       read_timeout_seconds=60) as client:
         tools = await client.list_tools()
-        assert len(tools.tools) == 9
+        assert len(tools.tools) == 7
         # The image ships the knowledge base index for every source
         for collection in ("pflotran", "crunchflow", "alquimia"):
             found = payload(await client.call_tool(
@@ -61,10 +61,9 @@ async def smoke(image: str, docker_host: str | None, output: Path) -> dict:
             for engine in entry["engines"]:
                 arguments = {"case": case, "engine": engine}
                 payload(await client.call_tool("get_chemistry", arguments))
-                session_id = payload(await client.call_tool("setup", arguments))["session_id"]
-                initialized = payload(
-                    await client.call_tool("initialize", {"session_id": session_id}))
-                assert (initialized["time"], initialized["total_steps"]) == (0, 0)
+                setup = payload(await client.call_tool("setup", arguments))
+                session_id = setup["session_id"]
+                assert setup["state"], setup
                 # A looped request inside the engine, then a single step
                 for time_config in ({"dt": 1.0, "max_steps": 2}, {"dt": 3.0, "max_steps": 1}):
                     result = payload(await client.call_tool(
@@ -72,8 +71,6 @@ async def smoke(image: str, docker_host: str | None, output: Path) -> dict:
                     assert result["steps"] == time_config["max_steps"]
                 assert (result["time"], result["total_steps"]) == (5, 3)
                 final = result["state"]
-                polled = payload(await client.call_tool("get_results", {"session_id": session_id}))
-                assert polled == {"time": 5, "total_steps": 3, "state": final}
                 assert payload(await client.call_tool("close", {"session_id": session_id})) == {
                     "closed": True}
                 saved = json.loads(

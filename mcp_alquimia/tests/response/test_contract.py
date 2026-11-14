@@ -5,7 +5,6 @@ import pytest
 from mcp_alquimia.response.contract import (
     shape_react,
     shape_setup,
-    shape_snapshot,
     shape_state,
     to_json,
 )
@@ -42,13 +41,6 @@ def test_null_ph_and_empty_groups_are_omitted():
     assert set(state) == {"temperature", "porosity", "aqueous_total"}
 
 
-def test_snapshot_reports_cumulative_time_and_steps():
-    """initialize and get_results report time and total_steps beside the state."""
-    snapshot = shape_snapshot({"state": RAW, "metadata": METADATA})
-    assert (snapshot["time"], snapshot["total_steps"]) == (4320000, 50)
-    assert snapshot["state"] == shape_state(RAW, METADATA)
-
-
 def test_react_response_reports_this_call_and_cumulative_steps():
     """steps and dt are this call's; time and total_steps count from initialization."""
     response = shape_react(
@@ -64,7 +56,8 @@ def test_react_response_reports_this_call_and_cumulative_steps():
 
 
 def test_setup_response_hides_engine_internals_and_sends_units():
-    """The staged engine, input file and condition stay server-side; units are sent once."""
+    """The staged engine, input file and condition stay server-side; units and the
+    initial state are sent."""
     response = shape_setup(
         {
             "session_id": "abc",
@@ -77,7 +70,9 @@ def test_setup_response_hides_engine_internals_and_sends_units():
                 "density": 997.16,
                 "temperature": 25.0,
             },
-            "time": {"dt": 86400.0, "max_steps": 10},
+            "time_config": {"dt": 86400.0, "max_steps": 10},
+            "state": RAW,
+            "metadata": METADATA,
         }
     )
     assert response == {
@@ -85,8 +80,9 @@ def test_setup_response_hides_engine_internals_and_sends_units():
         "case": "calcite-short",
         "engine": "PFloTran",
         "settings": {"density": 997.16, "temperature": 25.0},
-        "time": {"dt": 86400.0, "max_steps": 10},
+        "time_config": {"dt": 86400.0, "max_steps": 10},
         "units": RESPONSE_UNITS,
+        "state": shape_state(RAW, METADATA),
     }
 
 

@@ -165,12 +165,12 @@ most `--timeout` seconds (default 60) for it. A timeout ends the session. Workar
 
 The session ends with little detail; check `engine_output.log` in the session run directory.
 
-### An invalid initial_condition passes setup and fails at initialize
+### An invalid initial_condition fails setup
 
 `initial_condition` is not validated at setup
 (`mcp_alquimia/src/mcp_alquimia/cases/catalog.py`). The `*-ac-*` cases name an empty
 `driver_ic` condition and require `initial_condition` in the setup request; use a condition
-name defined in the input file (for example `initial`). PFLOTRAN then fails at initialize with
+name defined in the input file (for example `initial`). PFLOTRAN then fails while setup initializes it, with
 "Could not find pflotran constraint" (IF-P:440-444) and the session ends.
 
 ## Results that look wrong
@@ -190,10 +190,9 @@ available. ONNX reports no pH, so its responses omit the field.
 
 ### Results contain only totals, at the end of each react call
 
-`get_results` and `react` return `time` (seconds since initialize), `completed_steps`, `pH`,
-`temperature_celsius`, `porosity`, `total_mobile`, `total_immobile` and
-`mineral_volume_fraction` (`helpers.c:250-274`). Names are only in the setup metadata
-(`primary_species`, `minerals`). Not returned: free-ion concentrations, activity coefficients,
+`react` returns `time` (seconds since setup), `total_steps` and a state with `pH`,
+`temperature`, `porosity`, `aqueous_total`, `immobile_total` and `mineral_volume_fraction`,
+keyed by primary species or mineral name (`helpers.c:250-274`). Not returned: free-ion concentrations, activity coefficients,
 saturation indices, mineral reaction rates, secondary species, surface sites and CEC. Only
 the final state of each `react` call is kept. Workaround: for a time series, call `react`
 repeatedly with a small `max_steps`.
