@@ -6,6 +6,7 @@ from ..cases.catalog import get_chemistry as describe_chemistry
 from ..cases.registry import get_case
 from ..requests.setup import Engine, SetupRequest
 from ..requests.time_config import TimeConfigRequest
+from ..response.contract import shape_react, shape_setup, shape_snapshot
 from ..simulation.sessions import SessionManager, list_cases as describe_cases
 from .protocol import IDEMPOTENT, MUTATING, READ_ONLY, invoke
 
@@ -61,7 +62,7 @@ def register_simulation_tools(server: MCPServer, manager: SessionManager) -> Non
                 chemistry, of the initial condition. Omitted fields keep their
                 defaults; invalid or unknown fields are rejected before an engine starts.
         """
-        return await invoke(manager.setup, case, engine, request)
+        return await invoke(manager.setup, case, engine, request, shape=shape_setup)
 
     @server.tool(structured_output=False, annotations=MUTATING)
     async def initialize(session_id: str) -> str:
@@ -70,7 +71,7 @@ def register_simulation_tools(server: MCPServer, manager: SessionManager) -> Non
         Args:
             session_id: ID returned by setup.
         """
-        return await invoke(manager.initialize, session_id)
+        return await invoke(manager.initialize, session_id, shape=shape_snapshot)
 
     @server.tool(structured_output=False, annotations=MUTATING)
     async def react(
@@ -88,7 +89,7 @@ def register_simulation_tools(server: MCPServer, manager: SessionManager) -> Non
             time_config: Optional dt and max_steps overrides; they persist for later
                 react calls.
         """
-        return await invoke(manager.react, session_id, time_config)
+        return await invoke(manager.react, session_id, time_config, shape=shape_react)
 
     @server.tool(structured_output=False, annotations=READ_ONLY)
     async def get_results(session_id: str) -> str:
@@ -97,7 +98,7 @@ def register_simulation_tools(server: MCPServer, manager: SessionManager) -> Non
         Args:
             session_id: ID returned by setup, after initialize.
         """
-        return await invoke(manager.get_results, session_id)
+        return await invoke(manager.get_results, session_id, shape=shape_snapshot)
 
     @server.tool(structured_output=False, annotations=IDEMPOTENT)
     async def close(session_id: str) -> str:

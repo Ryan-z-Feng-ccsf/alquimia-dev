@@ -10,6 +10,10 @@ import json
 from typing import Any
 
 from ..utils.numerics import PH_DECIMALS, round_significant
+from ..utils.units import RESPONSE_UNITS
+
+# Staged setup keys the engine needs but the client does not.
+_SETUP_INTERNALS = ("engine", "input_file", "initial_condition")
 
 # Response group, raw state vector, and the metadata list naming its entries.
 _NAMED_GROUPS = (
@@ -60,10 +64,50 @@ def shape_state(raw: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]
     return state
 
 
-def shape_snapshot(raw: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
-    """The initialize and get_results response: cumulative time, steps and state."""
+def shape_setup(result: dict[str, Any]) -> dict[str, Any]:
+    """The setup response: session identity, physical settings, time and units.
+
+    Args:
+        result: SessionManager.setup's session_id, case, engine, staged setup and time.
+    """
+    return {
+        "session_id": result["session_id"],
+        "case": result["case"],
+        "engine": result["engine"],
+        "settings": {
+            key: value for key, value in result["setup"].items()
+            if key not in _SETUP_INTERNALS  # Physical condition
+        },
+        "time": result["time"],
+        "units": RESPONSE_UNITS,
+    }
+
+
+def shape_snapshot(result: dict[str, Any]) -> dict[str, Any]:
+    """The initialize and get_results response: cumulative time, steps and state.
+
+    Args:
+        result: A SessionManager result with the raw state and its metadata.
+    """
+    raw = result["state"]
     return {
         "time": raw["time"],
         "total_steps": raw["total_steps"],
-        "state": shape_state(raw, metadata),
+        "state": shape_state(raw, result["metadata"]),
+    }
+
+
+def shape_react(result: dict[str, Any]) -> dict[str, Any]:
+    """The react response: this call's steps and dt, cumulative time and steps, state.
+
+    Args:
+        result: SessionManager.react's raw state, metadata, dt and max_steps.
+    """
+    raw = result["state"]
+    return {
+        "time": raw["time"],
+        "total_steps": raw["total_steps"],
+        "steps": result["max_steps"],
+        "dt": result["dt"],
+        "state": shape_state(raw, result["metadata"]),
     }

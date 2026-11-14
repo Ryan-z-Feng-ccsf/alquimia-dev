@@ -42,8 +42,13 @@ def describe_validation_error(error: ValidationError) -> str:
     return f"Invalid {error.title}: {details}"
 
 
-async def invoke(function, *args) -> str:
+async def invoke(function, *args, shape=None) -> str:
     """Run an operation off the MCP event loop; returns its result as compact JSON.
+
+    Args:
+        function: Operation to run in a worker thread.
+        args: Its positional arguments.
+        shape: Optional response shaper applied to the raw result before encoding.
 
     Raises:
         ToolError: The operation rejected its input or the engine failed; the
@@ -52,7 +57,8 @@ async def invoke(function, *args) -> str:
     try:
         # The default cancellation shielding keeps ownership until the native
         # call returns or times out, allowing lifespan cleanup to reap it.
-        return to_json(await anyio.to_thread.run_sync(function, *args))
+        result = await anyio.to_thread.run_sync(function, *args)
+        return to_json(shape(result) if shape else result)
     except ValidationError as error:
         raise ToolError(describe_validation_error(error)) from error
     except (

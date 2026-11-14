@@ -14,8 +14,6 @@ from ..cases.catalog import list_cases as describe_cases, stage_case
 from ..cases.registry import get_case
 from ..requests.setup import SetupRequest
 from ..requests.time_config import TimeConfigRequest
-from ..response.contract import shape_snapshot, shape_state
-from ..utils.units import RESPONSE_UNITS
 from .engine_client import AlquimiaEngineProcess
 
 
@@ -110,9 +108,9 @@ class SessionManager:
                 Omitted fields keep the defaults shown by list_cases.
 
         Returns:
-            session_id, case, engine, settings (physical settings and initial
-            condition), time (dt and max_steps) and units of all responses.
-            Initialization is a separate operation; setup does not perform a reaction.
+            session_id, case, engine, setup (the staged settings sent to the
+            engine, including engine, input_file and initial_condition) and time
+            (dt and max_steps). Initialization is a separate operation; setup does not perform a reaction.
 
         Raises:
             ValueError: The case or engine is unknown, the request does not fit the
@@ -164,17 +162,17 @@ class SessionManager:
                 "session_id": session_id,
                 "case": spec.name,
                 "engine": engine_input.engine,
-                "settings": {
-                    key: value for key, value in setup.items()
-                    if key not in ("engine", "input_file", "initial_condition") # Physical condition
-                },
+                "setup": setup,
                 "time": time_step_config,
-                "units": RESPONSE_UNITS,
             }
 
     def initialize(self, session_id: str) -> dict[str, Any]:
-        """Apply the case's initial condition once; returns time, total_steps and state."""
-        return self._snapshot(session_id, "initialize")
+        """Apply the case's initial condition once; returns the raw engine result.
+
+        Returns:
+            state (raw engine snapshot) and metadata (primary_species, minerals).
+        """
+        return self._request(session_id, "initialize")
 
     def react(
         self,
@@ -191,28 +189,15 @@ class SessionManager:
                 current values (initially the defaults).
 
         Returns:
-            time (seconds since initialization), steps run by this call,
-            total_steps since initialization, dt (seconds), and the final state.
+            state (raw engine snapshot after the call), metadata, and the dt
+            (seconds) and max_steps the engine ran.
         """
-        result = self._request(
+        return self._request(
             session_id, "react", time_config=time_config or TimeConfigRequest())
-        raw = result["state"]
-        return {
-            "time": raw["time"],
-            "total_steps": raw["total_steps"],
-            "steps": result["max_steps"],
-            "dt": result["dt"],
-            "state": shape_state(raw, result["metadata"]),
-        }
 
     def get_results(self, session_id: str) -> dict[str, Any]:
-        """Return the latest time, total_steps and state without advancing the engine."""
-        return self._snapshot(session_id, "get_results")
-
-    def _snapshot(self, session_id: str, operation: str) -> dict[str, Any]:
-        """Run initialize or get_results and shape its state for the client."""
-        result = self._request(session_id, operation)
-        return shape_snapshot(result["state"], result["metadata"])
+        """Return the latest raw state and metadata without advancing the engine."""
+        return self._request(session_id, "get_results")
 
     def _request(self, session_id: str, operation: str, **parameters) -> dict[str, Any]:
         """Validate lifecycle, invoke the engine, and persist completed operations.
