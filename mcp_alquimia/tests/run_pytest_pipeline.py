@@ -8,6 +8,8 @@ import subprocess
 import sys
 import tempfile
 
+from mcp_alquimia.utils.paths import find_repository
+
 
 def main():
     """Run explicit engine process compilation followed by the selected pytest cases.
@@ -23,14 +25,16 @@ def main():
         SystemExit: Help is requested, arguments are invalid, or pytest is missing.
         OSError: Report directory creation or launching a command fails.
     """
+    # This script stays at the tests root; project holds build_tools/ and tests/
     project = Path(__file__).resolve().parents[1]
+    repository = find_repository(project)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--prefix", type=Path, default=project.parent / "build/install")
+    parser.add_argument("--prefix", type=Path, default=repository / "build/install")
     parser.add_argument("--engine-process", type=Path,
-                        default=project.parent / "build/mcp_alquimia/bin/alquimia_engine_process")
+                        default=repository / "build/mcp_alquimia/bin/alquimia_engine_process")
     parser.add_argument("--cc", default=os.environ.get("MPICC", "mpicc"))
     parser.add_argument("--report-dir", type=Path,
-                        default=project.parent / "build/mcp_alquimia/test_reports")
+                        default=repository / "build/mcp_alquimia/test_reports")
     parser.add_argument("--skip-build", action="store_true",
                         help="Use an existing engine process, or run tests that do not need it")
     parser.add_argument("pytest_args", nargs=argparse.REMAINDER,

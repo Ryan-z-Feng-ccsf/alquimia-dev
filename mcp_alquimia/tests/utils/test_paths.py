@@ -16,20 +16,20 @@ def test_repository_is_found_from_a_nested_file(tmp_path):
     assert find_repository(module) == tmp_path.resolve()
 
 
+# tmp_path may lie inside a checkout (the pytest pipeline puts it under build/), so
+# "outside any checkout" is a path under the filesystem root; it need not exist.
 def test_later_starts_are_tried_in_order(tmp_path):
     """An installed package outside any checkout falls back to the working directory."""
     checkout = tmp_path / "checkout"
     (checkout / BATCH_CHEM_DIR).mkdir(parents=True)
-    site_packages = tmp_path / "venv/lib/site-packages/mcp_alquimia/server/app.py"
-    site_packages.parent.mkdir(parents=True)
-    site_packages.touch()
+    site_packages = Path(tmp_path.anchor, "venv/lib/site-packages/mcp_alquimia/server/app.py")
     assert find_repository(site_packages, checkout / "build") == checkout.resolve()
 
 
 def test_missing_checkout_asks_for_the_option(tmp_path):
     """Outside every checkout the error names --repository."""
     with pytest.raises(FileNotFoundError, match="--repository"):
-        find_repository(tmp_path)
+        find_repository(Path(tmp_path.anchor, "no-checkout/here"))
 
 
 def test_this_checkout_is_found(repository_root):
